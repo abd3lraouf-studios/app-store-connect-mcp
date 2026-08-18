@@ -101,6 +101,26 @@ operations.sort((a, b) => a.id.localeCompare(b.id));
 const byRisk = {};
 for (const o of operations) byRisk[o.risk] = (byRisk[o.risk] ?? 0) + 1;
 
+// Enum tables, generated rather than written down.
+//
+// A hand-maintained enum table is a table that goes stale: one competitor's
+// cookbook lists an eventState value Apple does not have and omits two it does.
+// Deriving them from the spec makes that class of error impossible.
+const enums = {};
+for (const [schemaName, schema] of Object.entries(spec.components?.schemas ?? {})) {
+  const attrs = schema?.properties?.attributes?.properties;
+  if (!attrs) continue;
+  for (const [field, def] of Object.entries(attrs)) {
+    if (Array.isArray(def.enum) && def.enum.length) {
+      enums[`${schemaName}.${field}`] = def.enum;
+    }
+  }
+}
+fs.writeFileSync(
+  path.join(ROOT, 'spec', 'enums.json'),
+  JSON.stringify({ apiVersion: spec.info.version, count: Object.keys(enums).length, enums }, null, 2)
+);
+
 const index = {
   apiVersion: spec.info.version,
   title: spec.info.title,
@@ -119,3 +139,4 @@ console.log(
     `(API v${index.apiVersion}) — ${kb(fs.statSync(OUT).size)} vs ${kb(fs.statSync(SPEC).size)} full`
 );
 console.log('risk mix:', byRisk);
+console.log(`enum tables: ${Object.keys(enums).length} → spec/enums.json`);

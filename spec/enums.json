@@ -1,0 +1,667 @@
+{
+  "apiVersion": "4.4.1",
+  "count": 90,
+  "enums": {
+    "AccessibilityDeclaration.state": [
+      "DRAFT",
+      "PUBLISHED",
+      "REPLACED"
+    ],
+    "Actor.actorType": [
+      "USER",
+      "API_KEY",
+      "XCODE_CLOUD",
+      "APPLE"
+    ],
+    "AgeRatingDeclaration.alcoholTobaccoOrDrugUseOrReferences": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.contests": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.gamblingSimulated": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.gunsOrOtherWeapons": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.medicalOrTreatmentInformation": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.profanityOrCrudeHumor": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.sexualContentGraphicAndNudity": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.sexualContentOrNudity": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.horrorOrFearThemes": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.matureOrSuggestiveThemes": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.violenceCartoonOrFantasy": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.violenceRealisticProlongedGraphicOrSadistic": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.violenceRealistic": [
+      "NONE",
+      "INFREQUENT_OR_MILD",
+      "FREQUENT_OR_INTENSE",
+      "INFREQUENT",
+      "FREQUENT"
+    ],
+    "AgeRatingDeclaration.ageRatingOverride": [
+      "NONE",
+      "NINE_PLUS",
+      "THIRTEEN_PLUS",
+      "SIXTEEN_PLUS",
+      "SEVENTEEN_PLUS",
+      "UNRATED"
+    ],
+    "AgeRatingDeclaration.ageRatingOverrideV2": [
+      "NONE",
+      "NINE_PLUS",
+      "THIRTEEN_PLUS",
+      "SIXTEEN_PLUS",
+      "EIGHTEEN_PLUS",
+      "UNRATED"
+    ],
+    "AgeRatingDeclaration.koreaAgeRatingOverride": [
+      "NONE",
+      "FIFTEEN_PLUS",
+      "NINETEEN_PLUS"
+    ],
+    "AlternativeDistributionPackageVersion.state": [
+      "COMPLETED",
+      "REPLACED"
+    ],
+    "AnalyticsReportInstance.granularity": [
+      "DAILY",
+      "WEEKLY",
+      "MONTHLY"
+    ],
+    "AnalyticsReportRequest.accessType": [
+      "ONE_TIME_SNAPSHOT",
+      "ONGOING"
+    ],
+    "AnalyticsReport.category": [
+      "APP_USAGE",
+      "APP_STORE_ENGAGEMENT",
+      "COMMERCE",
+      "FRAMEWORK_USAGE",
+      "PERFORMANCE"
+    ],
+    "AppClipAdvancedExperience.status": [
+      "RECEIVED",
+      "DEACTIVATED",
+      "APP_TRANSFER_IN_PROGRESS"
+    ],
+    "AppClipAdvancedExperience.placeStatus": [
+      "PENDING",
+      "MATCHED",
+      "NO_MATCH"
+    ],
+    "AppClipAdvancedExperience.businessCategory": [
+      "AUTOMOTIVE",
+      "BEAUTY",
+      "BIKES",
+      "BOOKS",
+      "CASINO",
+      "EDUCATION",
+      "EDUCATION_JAPAN",
+      "ENTERTAINMENT",
+      "EV_CHARGER",
+      "FINANCIAL_USD",
+      "FINANCIAL_CNY",
+      "FINANCIAL_GBP",
+      "FINANCIAL_JPY",
+      "FINANCIAL_EUR",
+      "FITNESS",
+      "FOOD_AND_DRINK",
+      "GAS",
+      "GROCERY",
+      "HEALTH_AND_MEDICAL",
+      "HOTEL_AND_TRAVEL",
+      "MUSIC",
+      "PARKING",
+      "PET_SERVICES",
+      "PROFESSIONAL_SERVICES",
+      "SHOPPING",
+      "TICKETING",
+      "TRANSIT"
+    ],
+    "AppCustomProductPageVersion.state": [
+      "PREPARE_FOR_SUBMISSION",
+      "READY_FOR_REVIEW",
+      "WAITING_FOR_REVIEW",
+      "IN_REVIEW",
+      "ACCEPTED",
+      "APPROVED",
+      "REPLACED_WITH_NEW_VERSION",
+      "REJECTED"
+    ],
+    "AppEvent.badge": [
+      "LIVE_EVENT",
+      "PREMIERE",
+      "CHALLENGE",
+      "COMPETITION",
+      "NEW_SEASON",
+      "MAJOR_UPDATE",
+      "SPECIAL_EVENT"
+    ],
+    "AppEvent.eventState": [
+      "DRAFT",
+      "READY_FOR_REVIEW",
+      "WAITING_FOR_REVIEW",
+      "IN_REVIEW",
+      "REJECTED",
+      "ACCEPTED",
+      "APPROVED",
+      "PUBLISHED",
+      "PAST",
+      "ARCHIVED"
+    ],
+    "AppEvent.priority": [
+      "HIGH",
+      "NORMAL"
+    ],
+    "AppEvent.purpose": [
+      "APPROPRIATE_FOR_ALL_USERS",
+      "ATTRACT_NEW_USERS",
+      "KEEP_ACTIVE_USERS_INFORMED",
+      "BRING_BACK_LAPSED_USERS"
+    ],
+    "AppInfo.state": [
+      "ACCEPTED",
+      "DEVELOPER_REJECTED",
+      "IN_REVIEW",
+      "PENDING_RELEASE",
+      "PREPARE_FOR_SUBMISSION",
+      "READY_FOR_DISTRIBUTION",
+      "READY_FOR_REVIEW",
+      "REJECTED",
+      "REPLACED_WITH_NEW_INFO",
+      "WAITING_FOR_REVIEW"
+    ],
+    "AppInfo.australiaAgeRating": [
+      "FIFTEEN",
+      "EIGHTEEN"
+    ],
+    "AppInfo.brazilAgeRatingV2": [
+      "SELF_RATED_L",
+      "SELF_RATED_TEN",
+      "SELF_RATED_TWELVE",
+      "SELF_RATED_FOURTEEN",
+      "SELF_RATED_SIXTEEN",
+      "SELF_RATED_EIGHTEEN",
+      "OFFICIAL_L",
+      "OFFICIAL_TEN",
+      "OFFICIAL_TWELVE",
+      "OFFICIAL_FOURTEEN",
+      "OFFICIAL_SIXTEEN",
+      "OFFICIAL_EIGHTEEN"
+    ],
+    "AppInfo.franceAgeRating": [
+      "EIGHTEEN"
+    ],
+    "AppInfo.koreaAgeRating": [
+      "ALL",
+      "TWELVE",
+      "FIFTEEN",
+      "NINETEEN",
+      "NOT_APPLICABLE"
+    ],
+    "AppStoreVersionExperimentV2.state": [
+      "PREPARE_FOR_SUBMISSION",
+      "READY_FOR_REVIEW",
+      "WAITING_FOR_REVIEW",
+      "IN_REVIEW",
+      "ACCEPTED",
+      "APPROVED",
+      "REJECTED",
+      "COMPLETED",
+      "STOPPED"
+    ],
+    "AppStoreVersionExperiment.state": [
+      "PREPARE_FOR_SUBMISSION",
+      "READY_FOR_REVIEW",
+      "WAITING_FOR_REVIEW",
+      "IN_REVIEW",
+      "ACCEPTED",
+      "APPROVED",
+      "REJECTED",
+      "COMPLETED",
+      "STOPPED"
+    ],
+    "AppStoreVersion.reviewType": [
+      "APP_STORE",
+      "NOTARIZATION"
+    ],
+    "AppStoreVersion.releaseType": [
+      "MANUAL",
+      "AFTER_APPROVAL",
+      "SCHEDULED"
+    ],
+    "App.contentRightsDeclaration": [
+      "DOES_NOT_USE_THIRD_PARTY_CONTENT",
+      "USES_THIRD_PARTY_CONTENT"
+    ],
+    "BackgroundAssetUploadFile.assetType": [
+      "ASSET",
+      "MANIFEST"
+    ],
+    "BackgroundAssetVersionInternalBetaRelease.state": [
+      "READY_FOR_TESTING",
+      "SUPERSEDED"
+    ],
+    "BuildUploadFile.assetType": [
+      "ASSET",
+      "ASSET_DESCRIPTION",
+      "ASSET_SPI"
+    ],
+    "BuildUploadFile.uti": [
+      "com.apple.binary-property-list",
+      "com.apple.ipa",
+      "com.apple.pkg",
+      "com.apple.xml-property-list",
+      "com.pkware.zip-archive"
+    ],
+    "Build.processingState": [
+      "PROCESSING",
+      "FAILED",
+      "INVALID",
+      "VALID"
+    ],
+    "CiArtifact.fileType": [
+      "ARCHIVE",
+      "ARCHIVE_EXPORT",
+      "LOG_BUNDLE",
+      "RESULT_BUNDLE",
+      "TEST_PRODUCTS",
+      "XCODEBUILD_PRODUCTS",
+      "STAPLED_NOTARIZED_ARCHIVE"
+    ],
+    "CiBuildRun.startReason": [
+      "GIT_REF_CHANGE",
+      "MANUAL",
+      "MANUAL_REBUILD",
+      "PULL_REQUEST_OPEN",
+      "PULL_REQUEST_UPDATE",
+      "SCHEDULE"
+    ],
+    "CiBuildRun.cancelReason": [
+      "AUTOMATICALLY_BY_NEWER_BUILD",
+      "MANUALLY_BY_USER"
+    ],
+    "CiIssue.issueType": [
+      "ANALYZER_WARNING",
+      "ERROR",
+      "TEST_FAILURE",
+      "WARNING"
+    ],
+    "CiProduct.productType": [
+      "APP",
+      "FRAMEWORK"
+    ],
+    "CustomerReviewResponseV1.state": [
+      "PUBLISHED",
+      "PENDING_PUBLISH"
+    ],
+    "Device.deviceClass": [
+      "APPLE_VISION_PRO",
+      "APPLE_WATCH",
+      "IPAD",
+      "IPHONE",
+      "IPOD",
+      "APPLE_TV",
+      "MAC"
+    ],
+    "Device.status": [
+      "ENABLED",
+      "DISABLED"
+    ],
+    "DiagnosticSignature.diagnosticType": [
+      "DISK_WRITES",
+      "HANGS",
+      "LAUNCHES"
+    ],
+    "GameCenterActivity.playStyle": [
+      "ASYNCHRONOUS",
+      "SYNCHRONOUS"
+    ],
+    "GameCenterChallenge.challengeType": [
+      "LEADERBOARD"
+    ],
+    "GameCenterLeaderboard.submissionType": [
+      "BEST_SCORE",
+      "MOST_RECENT_SCORE"
+    ],
+    "GameCenterLeaderboard.scoreSortType": [
+      "ASC",
+      "DESC"
+    ],
+    "GameCenterLeaderboard.visibility": [
+      "SHOW_FOR_ALL",
+      "HIDE_FOR_ALL"
+    ],
+    "GameCenterLeaderboardV2.submissionType": [
+      "BEST_SCORE",
+      "MOST_RECENT_SCORE"
+    ],
+    "GameCenterLeaderboardV2.scoreSortType": [
+      "ASC",
+      "DESC"
+    ],
+    "GameCenterLeaderboardV2.visibility": [
+      "SHOW_FOR_ALL",
+      "HIDE_FOR_ALL"
+    ],
+    "GameCenterMatchmakingRule.type": [
+      "COMPATIBLE",
+      "DISTANCE",
+      "MATCH",
+      "TEAM"
+    ],
+    "GameCenterMatchmakingTestRequestInlineCreate.locale": [
+      "AR-SA",
+      "CA-ES",
+      "CS-CZ",
+      "DA-DK",
+      "DE-DE",
+      "EL-GR",
+      "EN-AU",
+      "EN-GB",
+      "EN-US",
+      "EN-KY",
+      "ES-ES",
+      "ES-MX",
+      "FI-FI",
+      "FR-CA",
+      "FR-FR",
+      "HI-IN",
+      "HR-HR",
+      "HU-HU",
+      "ID-ID",
+      "IT-IT",
+      "IW-IL",
+      "JA-JP",
+      "KO-KR",
+      "MS-MY",
+      "NL-NL",
+      "NO-NO",
+      "PL-PL",
+      "PT-BR",
+      "PT-PT",
+      "RO-RO",
+      "RU-RU",
+      "SK-SK",
+      "SV-SE",
+      "TH-TH",
+      "TR-TR",
+      "UK-UA",
+      "ZH-CN",
+      "ZH-TW",
+      "ZH-HK"
+    ],
+    "InAppPurchaseImage.state": [
+      "AWAITING_UPLOAD",
+      "UPLOAD_COMPLETE",
+      "FAILED",
+      "PREPARE_FOR_SUBMISSION",
+      "WAITING_FOR_REVIEW",
+      "APPROVED",
+      "REJECTED"
+    ],
+    "InAppPurchaseLocalization.state": [
+      "PREPARE_FOR_SUBMISSION",
+      "WAITING_FOR_REVIEW",
+      "APPROVED",
+      "REJECTED"
+    ],
+    "InAppPurchaseVersion.state": [
+      "PREPARE_FOR_SUBMISSION",
+      "READY_FOR_REVIEW",
+      "WAITING_FOR_REVIEW",
+      "IN_REVIEW",
+      "ACCEPTED",
+      "APPROVED",
+      "REPLACED_WITH_NEW_VERSION",
+      "REJECTED",
+      "DEVELOPER_REJECTED"
+    ],
+    "InAppPurchase.inAppPurchaseType": [
+      "AUTOMATICALLY_RENEWABLE_SUBSCRIPTION",
+      "NON_CONSUMABLE",
+      "CONSUMABLE",
+      "NON_RENEWING_SUBSCRIPTION",
+      "FREE_SUBSCRIPTION"
+    ],
+    "InAppPurchase.state": [
+      "CREATED",
+      "DEVELOPER_SIGNED_OFF",
+      "DEVELOPER_ACTION_NEEDED",
+      "DELETION_IN_PROGRESS",
+      "APPROVED",
+      "DELETED",
+      "REMOVED_FROM_SALE",
+      "DEVELOPER_REMOVED_FROM_SALE",
+      "WAITING_FOR_UPLOAD",
+      "PROCESSING_CONTENT",
+      "REPLACED",
+      "REJECTED",
+      "WAITING_FOR_SCREENSHOT",
+      "PREPARE_FOR_SUBMISSION",
+      "MISSING_METADATA",
+      "READY_TO_SUBMIT",
+      "WAITING_FOR_REVIEW",
+      "IN_REVIEW",
+      "PENDING_DEVELOPER_RELEASE"
+    ],
+    "Nomination.type": [
+      "APP_LAUNCH",
+      "APP_ENHANCEMENTS",
+      "NEW_CONTENT"
+    ],
+    "Nomination.state": [
+      "DRAFT",
+      "SUBMITTED",
+      "ARCHIVED"
+    ],
+    "PerfPowerMetric.platform": [
+      "IOS"
+    ],
+    "PerfPowerMetric.metricType": [
+      "DISK",
+      "HANG",
+      "BATTERY",
+      "LAUNCH",
+      "MEMORY",
+      "ANIMATION",
+      "TERMINATION",
+      "STORAGE"
+    ],
+    "Profile.profileType": [
+      "IOS_APP_DEVELOPMENT",
+      "IOS_APP_STORE",
+      "IOS_APP_ADHOC",
+      "IOS_APP_INHOUSE",
+      "MAC_APP_DEVELOPMENT",
+      "MAC_APP_STORE",
+      "MAC_APP_DIRECT",
+      "TVOS_APP_DEVELOPMENT",
+      "TVOS_APP_STORE",
+      "TVOS_APP_ADHOC",
+      "TVOS_APP_INHOUSE",
+      "MAC_CATALYST_APP_DEVELOPMENT",
+      "MAC_CATALYST_APP_STORE",
+      "MAC_CATALYST_APP_DIRECT"
+    ],
+    "Profile.profileState": [
+      "ACTIVE",
+      "INVALID"
+    ],
+    "PromotedPurchase.state": [
+      "APPROVED",
+      "IN_REVIEW",
+      "PREPARE_FOR_SUBMISSION",
+      "REJECTED"
+    ],
+    "ReviewSubmissionItem.state": [
+      "READY_FOR_REVIEW",
+      "ACCEPTED",
+      "APPROVED",
+      "REJECTED",
+      "REMOVED"
+    ],
+    "ReviewSubmission.state": [
+      "READY_FOR_REVIEW",
+      "WAITING_FOR_REVIEW",
+      "IN_REVIEW",
+      "UNRESOLVED_ISSUES",
+      "CANCELING",
+      "COMPLETING",
+      "COMPLETE"
+    ],
+    "SandboxTesterV2.subscriptionRenewalRate": [
+      "MONTHLY_RENEWAL_EVERY_ONE_HOUR",
+      "MONTHLY_RENEWAL_EVERY_THIRTY_MINUTES",
+      "MONTHLY_RENEWAL_EVERY_FIFTEEN_MINUTES",
+      "MONTHLY_RENEWAL_EVERY_FIVE_MINUTES",
+      "MONTHLY_RENEWAL_EVERY_THREE_MINUTES"
+    ],
+    "SubscriptionGracePeriod.renewalType": [
+      "ALL_RENEWALS",
+      "PAID_TO_PAID_ONLY"
+    ],
+    "SubscriptionGroupLocalization.state": [
+      "PREPARE_FOR_SUBMISSION",
+      "WAITING_FOR_REVIEW",
+      "APPROVED",
+      "REJECTED"
+    ],
+    "SubscriptionGroupVersion.state": [
+      "PREPARE_FOR_SUBMISSION",
+      "READY_FOR_REVIEW",
+      "WAITING_FOR_REVIEW",
+      "IN_REVIEW",
+      "ACCEPTED",
+      "APPROVED",
+      "REPLACED_WITH_NEW_VERSION",
+      "REJECTED",
+      "DEVELOPER_REJECTED"
+    ],
+    "SubscriptionImage.state": [
+      "AWAITING_UPLOAD",
+      "UPLOAD_COMPLETE",
+      "FAILED",
+      "PREPARE_FOR_SUBMISSION",
+      "WAITING_FOR_REVIEW",
+      "APPROVED",
+      "REJECTED"
+    ],
+    "SubscriptionLocalization.state": [
+      "PREPARE_FOR_SUBMISSION",
+      "WAITING_FOR_REVIEW",
+      "APPROVED",
+      "REJECTED"
+    ],
+    "SubscriptionVersion.state": [
+      "PREPARE_FOR_SUBMISSION",
+      "READY_FOR_REVIEW",
+      "WAITING_FOR_REVIEW",
+      "IN_REVIEW",
+      "ACCEPTED",
+      "APPROVED",
+      "REPLACED_WITH_NEW_VERSION",
+      "REJECTED",
+      "DEVELOPER_REJECTED"
+    ],
+    "Subscription.state": [
+      "MISSING_METADATA",
+      "READY_TO_SUBMIT",
+      "WAITING_FOR_REVIEW",
+      "IN_REVIEW",
+      "DEVELOPER_ACTION_NEEDED",
+      "PENDING_BINARY_APPROVAL",
+      "APPROVED",
+      "DEVELOPER_REMOVED_FROM_SALE",
+      "REMOVED_FROM_SALE",
+      "REJECTED"
+    ],
+    "Subscription.subscriptionPeriod": [
+      "ONE_WEEK",
+      "ONE_MONTH",
+      "TWO_MONTHS",
+      "THREE_MONTHS",
+      "SIX_MONTHS",
+      "ONE_YEAR"
+    ],
+    "WebhookDelivery.deliveryState": [
+      "SUCCEEDED",
+      "FAILED",
+      "PENDING"
+    ],
+    "WinBackOffer.priority": [
+      "HIGH",
+      "NORMAL"
+    ],
+    "WinBackOffer.promotionIntent": [
+      "NOT_PROMOTED",
+      "USE_AUTO_GENERATED_ASSETS"
+    ]
+  }
+}

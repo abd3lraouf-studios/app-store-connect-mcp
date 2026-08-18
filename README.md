@@ -3,7 +3,7 @@
 An MCP server for **both** of Apple's commerce APIs — App Store Connect (1,263 operations) and the App Store Server API / StoreKit 2 (30 operations) — behind four tools, with the private key in the macOS Keychain and consequential writes gated behind an explicit confirmation.
 
 ```
-1,293 operations · 4 tools · key never on disk · verified against the live APIs
+1,293 operations · 5 tools · key never on disk · verified against the live APIs
 ```
 
 ## Why it is built this way
@@ -84,10 +84,46 @@ npm install && npm run build
 
 | Tool | Purpose |
 |---|---|
-| `asc_status` | Verify credentials and report reachability. Run first when anything fails — it separates a bad key from a bad request. |
-| `asc_search_endpoints` | Search both APIs by keyword, method, tag or risk tier. Returns operationIds. |
+| `asc_status` | Verify credentials, report reachability and the remaining rate-limit budget. Run first when anything fails — it separates a bad key from a bad request. |
+| `asc_search_endpoints` | Search both APIs by keyword, method, tag or risk tier. Returns operationIds and says which tool each belongs to. |
 | `asc_describe_endpoint` | Parameters, request-body schema with real field names, risk tier. |
-| `asc_call` | Execute. Handles path/query parameters, JSON bodies, pagination, and both APIs. |
+| `asc_call` | **Reads.** Path and query parameters, pagination, both APIs. |
+| `asc_write` | **Everything that changes data.** Confirmation, `dry_run`, both APIs. |
+
+Reads and writes are separate tools because Claude Code ignores the standard
+`destructiveHint` annotation but honours `_meta["anthropic/requiresUserInteraction"]`
+— and that flag is per-tool. A single dispatcher could not vary it per operation.
+`asc_write` carries it, so a write prompts the user **even under `bypassPermissions`**.
+That is a stronger guarantee than the in-process gate, which `--no-confirm` can switch off.
+
+## Resources
+
+Reference material the model can pull in deliberately, via `@asc:`:
+
+| Resource | Contents |
+|---|---|
+| `asc://cookbook` | Cases where Apple returns a *successful* response meaning something other than it appears — pagination, alpha-3 territories, rejected `sort`, gzipped reports |
+| `asc://enums` | All 90 enumerated fields, **generated from Apple's spec** so they cannot go stale |
+| `asc://risk` | What each risk tier means and how reversible it is |
+| `asc://sources` | Where each API description came from, and when |
+| `asc-response://…` | Overflow storage — see below |
+
+A result too large to return inline is **not** cut off. The list is trimmed to
+what fits, the truncation is stated along with how to narrow the request, and
+the complete response is kept as a resource the client can read without
+spending context. Cutting serialised JSON mid-structure hands the model
+something unparseable; cutting silently is worse, because a partial list reads
+as a complete one.
+
+## Prompts
+
+Four workflows, available as `/mcp__asc__<name>`:
+
+`release-readiness` · `pricing-audit` · `review-triage` · `testflight-status`
+
+Each chains several calls — a slash command wrapping one request is a synonym,
+not a workflow — and each encodes the traps, such as `sort` being rejected on
+`customerReviews` and review text being untrusted input.
 
 ## Write safety
 
@@ -109,6 +145,13 @@ By default the bottom five tiers return a confirmation token instead of executin
 --read-only    block every write        --confirm     confirm every write
 --no-confirm   never confirm            (default)     confirm the five tiers above
 ```
+
+When the client supports **elicitation**, `asc_write` asks the person directly,
+showing the method, path, body and tier. Otherwise it falls back to a
+confirmation token bound by hash to the exact operation, path, query and body,
+so a token issued for a cheap call cannot be spent on an expensive one. A
+client that declares elicitation but fails to serve it falls back rather than
+sailing through. `dry_run` reports the exact request without sending it.
 
 ## Transports
 
@@ -162,6 +205,14 @@ Two details in that catalogue contradict what the documentation implies, and bot
 ```
 
 StoreKit probes use a deliberately invalid transaction ID. The signal is the *shape* of the reply: a structured Apple `errorCode` proves the request was authenticated and routed, where a `401` would prove it was not.
+
+## Robustness
+
+- **Timeouts and retries.** Reads retry on 408/429/5xx; **writes retry only on 429**, where Apple rejected the request before processing it. A write that fails ambiguously is reported as ambiguous and never resent — a duplicated POST is worse than a reported failure.
+- **Rate limiting.** Paced against both the documented hourly limit and the undocumented per-minute one, and corrected from Apple's own `x-rate-limit` header, which accounts for other clients sharing the key. `x-request-id` is surfaced for Apple support.
+- **Host pinning.** Every URL, including the `links.next` pagination cursor, is checked against an allowlist of Apple's three API hosts. A cursor is server-supplied input; following one blindly would walk a bearer token to whatever host it names.
+- **Response shaping.** `links` and links-only `relationships` are stripped, `links.next` preserved — over 60% smaller on a real price-point listing.
+- **Lifecycle.** The stdio server exits on stdin EOF and on signals, rather than lingering as an orphan holding a signing key.
 
 ## Known limits
 

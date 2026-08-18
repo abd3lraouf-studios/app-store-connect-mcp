@@ -63,6 +63,7 @@ describe('tools/list', () => {
       'asc_describe_endpoint',
       'asc_search_endpoints',
       'asc_status',
+      'asc_write',
     ]);
     await close();
   });
@@ -166,12 +167,12 @@ describe('the safety gate, end to end', () => {
     const { client, close } = await connect();
     const args = { operationId: 'analyticsReportRequests_deleteInstance', path_params: { id: '123' } };
 
-    const gated = payload(await client.callTool({ name: 'asc_call', arguments: args }));
+    const gated = payload(await client.callTool({ name: 'asc_write', arguments: args }));
     expect(gated.confirmationRequired).toBe(true);
     expect(gated.risk).toBe('DESTRUCTIVE');
     expect(deleted).toBe(false);
 
-    await client.callTool({ name: 'asc_call', arguments: { ...args, confirm: gated.token } });
+    await client.callTool({ name: 'asc_write', arguments: { ...args, confirm: gated.token } });
     expect(deleted).toBe(true);
     await close();
   });
@@ -179,7 +180,7 @@ describe('the safety gate, end to end', () => {
   it('rejects a forged token', async () => {
     const { client, close } = await connect();
     const res = await client.callTool({
-      name: 'asc_call',
+      name: 'asc_write',
       arguments: { operationId: 'analyticsReportRequests_deleteInstance', path_params: { id: '1' }, confirm: 'forged' },
     });
     expect(payload(res).blocked).toBe(true);
@@ -189,7 +190,7 @@ describe('the safety gate, end to end', () => {
   it('blocks every write in read-only mode', async () => {
     const { client, close } = await connect({ safety: 'read-only' });
     const res = await client.callTool({
-      name: 'asc_call',
+      name: 'asc_write',
       arguments: { operationId: 'analyticsReportRequests_deleteInstance', path_params: { id: '1' } },
     });
     expect(payload(res).message).toMatch(/read-only/);
@@ -204,10 +205,124 @@ describe('the safety gate, end to end', () => {
     }));
     const { client, close } = await connect({ safety: 'no-confirm' });
     await client.callTool({
-      name: 'asc_call',
+      name: 'asc_write',
       arguments: { operationId: 'analyticsReportRequests_deleteInstance', path_params: { id: '9' } },
     });
     expect(deleted).toBe(true);
+    await close();
+  });
+});
+
+describe('the read/write split', () => {
+  it('refuses a write through asc_call and names asc_write', async () => {
+    const { client, close } = await connect();
+    const res = await client.callTool({
+      name: 'asc_call',
+      arguments: { operationId: 'analyticsReportRequests_deleteInstance', path_params: { id: '1' } },
+    });
+    expect(res.isError).toBe(true);
+    expect(payload(res).error).toMatch(/asc_write/);
+    await close();
+  });
+
+  it('refuses a read through asc_write and names asc_call', async () => {
+    const { client, close } = await connect();
+    const res = await client.callTool({ name: 'asc_write', arguments: { operationId: 'apps_getCollection' } });
+    expect(res.isError).toBe(true);
+    expect(payload(res).error).toMatch(/asc_call/);
+    await close();
+  });
+
+  // Claude Code ignores destructiveHint but honours this, even under
+  // bypassPermissions — it is the only un-bypassable guarantee available.
+  it('marks asc_write as requiring user interaction', async () => {
+    const { client, close } = await connect();
+    const { tools } = await client.listTools();
+    const write = tools.find((t) => t.name === 'asc_write');
+    expect((write as any)._meta['anthropic/requiresUserInteraction']).toBe(true);
+    const read = tools.find((t) => t.name === 'asc_call');
+    expect((read as any)._meta?.['anthropic/requiresUserInteraction']).toBeUndefined();
+    await close();
+  });
+
+  it('search says which tool each operation belongs to', async () => {
+    const { client, close } = await connect();
+    const out = payload(await client.callTool({ name: 'asc_search_endpoints', arguments: { query: 'apps', limit: 5 } }));
+    for (const op of out.connect.operations) {
+      expect(op.tool).toBe(op.risk === 'READ' ? 'asc_call' : 'asc_write');
+    }
+    await close();
+  });
+});
+
+describe('dry run', () => {
+  it('reports the request without sending it', async () => {
+    // No MSW handler is registered, so any real request would fail the test.
+    const { client, close } = await connect({ safety: 'no-confirm' });
+    const out = payload(await client.callTool({
+      name: 'asc_write',
+      arguments: { operationId: 'analyticsReportRequests_deleteInstance', path_params: { id: '5' }, dry_run: true },
+    }));
+    expect(out.dryRun).toBe(true);
+    expect(out.wouldSend.method).toBe('DELETE');
+    expect(out.wouldSend.url).toContain('/v1/analyticsReportRequests/5');
+    await close();
+  });
+});
+
+describe('resources', () => {
+  it('lists the cookbook, enums and risk table', async () => {
+    const { client, close } = await connect();
+    const { resources } = await client.listResources();
+    const uris = resources.map((r) => r.uri);
+    expect(uris).toContain('asc://cookbook');
+    expect(uris).toContain('asc://enums');
+    expect(uris).toContain('asc://risk');
+    await close();
+  });
+
+  it('serves enum values generated from Apple’s spec', async () => {
+    const { client, close } = await connect();
+    const res = await client.readResource({ uri: 'asc://enums' });
+    const body = JSON.parse((res.contents[0] as any).text);
+    // The value a widely-copied cookbook gets wrong, in both directions.
+    expect(body.enums['AppEvent.eventState']).toContain('WAITING_FOR_REVIEW');
+    expect(body.enums['AppEvent.eventState']).not.toContain('READY_FOR_SALE');
+    await close();
+  });
+
+  it('serves the cookbook as markdown', async () => {
+    const { client, close } = await connect();
+    const res = await client.readResource({ uri: 'asc://cookbook' });
+    expect((res.contents[0] as any).text).toMatch(/alpha-3/);
+    await close();
+  });
+
+  it('rejects an unknown resource', async () => {
+    const { client, close } = await connect();
+    await expect(client.readResource({ uri: 'asc://nope' })).rejects.toThrow();
+    await close();
+  });
+});
+
+describe('prompts', () => {
+  it('lists workflows as slash commands', async () => {
+    const { client, close } = await connect();
+    const { prompts } = await client.listPrompts();
+    expect(prompts.map((p) => p.name)).toContain('release-readiness');
+    await close();
+  });
+
+  it('renders a prompt with its argument substituted', async () => {
+    const { client, close } = await connect();
+    const res = await client.getPrompt({ name: 'release-readiness', arguments: { app: 'com.example.app' } });
+    expect((res.messages[0].content as any).text).toContain('com.example.app');
+    await close();
+  });
+
+  it('refuses a prompt that is missing a required argument', async () => {
+    const { client, close } = await connect();
+    await expect(client.getPrompt({ name: 'release-readiness', arguments: {} })).rejects.toThrow();
     await close();
   });
 });
@@ -230,6 +345,36 @@ describe('asc_status', () => {
     const { client, close } = await connect();
     const res = await client.callTool({ name: 'asc_status', arguments: {} });
     expect(JSON.stringify(res)).not.toContain('BEGIN PRIVATE KEY');
+    await close();
+  });
+});
+
+describe('oversized results', () => {
+  it('trims the list, says so, and offers the full result as a resource', async () => {
+    // 4,000 rows of padding is comfortably past the inline budget.
+    mock.use(http.get(`${BASE}/v1/apps`, () =>
+      HttpResponse.json({
+        data: Array.from({ length: 4000 }, (_, i) => ({
+          id: String(i),
+          type: 'apps',
+          attributes: { name: `App ${i}`, pad: 'x'.repeat(120) },
+        })),
+      })
+    ));
+    const { client, close } = await connect();
+    const out = payload(await client.callTool({ name: 'asc_call', arguments: { operationId: 'apps_getCollection' } }));
+
+    expect(out.truncated.total).toBe(4000);
+    expect(out.data.length).toBeLessThan(4000);
+    expect(out.fullResult).toMatch(/^asc-response:\/\//);
+
+    // The complete result is readable without spending context on it.
+    const full = await client.readResource({ uri: out.fullResult });
+    expect(JSON.parse((full.contents[0] as any).text).data).toHaveLength(4000);
+
+    // And it shows up in the resource listing.
+    const { resources } = await client.listResources();
+    expect(resources.some((r) => r.uri === out.fullResult)).toBe(true);
     await close();
   });
 });
