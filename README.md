@@ -122,18 +122,18 @@ deliver.
 ## Install
 
 ```bash
-git clone https://github.com/abd3lraouf-studios/app-store-connect-mcp
-cd app-store-connect-mcp && npm install && npm run build
-```
-
-Register it with Claude Code:
-
-```bash
 claude mcp add --scope user app-store-connect \
   --env ASC_KEY=keychain:my-asc-key \
   --env ASC_BUNDLE_ID=com.example.app \
   --env ASC_APP_APPLE_ID=1234567890 \
-  -- node "$PWD/dist/index.js"
+  -- npx -y @abd3lraouf/app-store-connect-mcp
+```
+
+Nothing to clone or build. Or from source, if you'd rather read it first:
+
+```bash
+git clone https://github.com/abd3lraouf-studios/app-store-connect-mcp
+cd app-store-connect-mcp && npm install && npm run build
 ```
 
 Or, for Claude Desktop, Cursor and friends:
@@ -142,8 +142,8 @@ Or, for Claude Desktop, Cursor and friends:
 {
   "mcpServers": {
     "app-store-connect": {
-      "command": "node",
-      "args": ["/path/to/app-store-connect-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@abd3lraouf/app-store-connect-mcp"],
       "env": {
         "ASC_KEY": "keychain:my-asc-key",
         "ASC_BUNDLE_ID": "com.example.app",
@@ -419,7 +419,6 @@ Stated plainly, because you will find them anyway:
   anywhere a person is present.
 - **`--no-online-checks` skips OCSP**, which means accepting a revoked
   certificate.
-- **Not published to npm yet.** Clone and build.
 - **The accept path for signatures is proven against a substituted trust
   anchor**, not Apple's — getting a genuinely Apple-signed payload needs a real
   customer transaction. The chain logic is Apple's own library.
