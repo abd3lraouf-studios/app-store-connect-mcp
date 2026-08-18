@@ -41,7 +41,23 @@ for (const [label, value] of [
   }
 }
 
-// 3. The spec index must be current with respect to the spec it came from.
+// 3. The advertised tool count must match the code. This is the drift that
+//    just slipped through: the README said "four tools" after a fifth existed.
+const toolNames = [...read('src/server.ts').matchAll(/^\s{8}name: '(asc_[a-z_]+)',$/gm)].map((m) => m[1]);
+const words = { 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight' };
+if (!toolNames.length) {
+  problems.push('Could not determine the tool count from src/server.ts — the pre-flight check needs updating.');
+} else {
+  const word = words[toolNames.length];
+  if (!readme.includes(`${word} tools`) && !readme.includes(`${toolNames.length} tools`)) {
+    problems.push(`README does not advertise ${toolNames.length} (${word}) tools; found: ${toolNames.join(', ')}.`);
+  }
+  for (const t of toolNames) {
+    if (!readme.includes(t)) problems.push(`README never mentions the tool ${t}.`);
+  }
+}
+
+// 4. The spec index must be current with respect to the spec it came from.
 const specVersion = JSON.parse(read('spec/apple-openapi.json')).info.version;
 if (index.apiVersion !== specVersion) {
   problems.push(`spec/index.json is built from v${index.apiVersion} but the spec is v${specVersion}. Run: npm run build:index`);
@@ -54,5 +70,5 @@ if (problems.length) {
 
 console.log(
   `Pre-flight OK — v${pkg.version}, ${index.operationCount} Connect + ${storekitCount} StoreKit ` +
-    `= ${total} operations, spec v${specVersion}.`
+    `= ${total} operations across ${toolNames.length} tools, spec v${specVersion}.`
 );
