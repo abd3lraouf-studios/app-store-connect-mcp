@@ -271,9 +271,55 @@ this is your own tester roster, and silently redacting it would be surprising.
 - **Response shaping.** `links` and links-only `relationships` are stripped, `links.next` preserved — over 60% smaller on a real price-point listing.
 - **Lifecycle.** The stdio server exits on stdin EOF and on signals, rather than lingering as an orphan holding a signing key.
 
+## Signature verification
+
+App Store Server API payloads arrive as JWS signed by Apple. Decoding one tells
+you what the bytes say; **verifying** it tells you Apple said it. The
+distinction matters here more than in most places, because these payloads are
+the evidence behind "is this person a paying subscriber?" — and a decoded but
+unverified transaction is exactly the shape a forged one takes.
+
+Every signed field is verified against **Apple Root CA - G3**, vendored in
+`certs/` and refreshed by `npm run fetch:specs` so verification cannot be
+switched off by a network failure. Chain validation, expiry, revocation and the
+bundle/environment checks are delegated to Apple's own
+`@apple/app-store-server-library`, because those are exactly the places where a
+plausible-looking implementation accepts bad input.
+
+Outcomes are reported **per field**, not per response — one bad signature in a
+history of two hundred is the case that matters, and a response-level flag
+would bury it:
+
+```json
+"signedTransactionInfo_decoded":      { "productId": "premium.monthly", ... },
+"signedTransactionInfo_verification": { "verified": true }
+```
+
+Verification needs `ASC_BUNDLE_ID`, and in Production also `ASC_APP_APPLE_ID`:
+Apple binds a payload to a specific app, and without that a correctly signed
+transaction belonging to *someone else's app* would pass. Where it cannot run,
+payloads are still decoded and every field says plainly that nothing was
+verified, with `asc_status` reporting which state you are in. Silence there
+would be the dangerous outcome.
+
+`--no-online-checks` skips OCSP revocation lookups: faster and works offline,
+at the cost of accepting a revoked certificate.
+
+## Protocol version
+
+Claude Code 2.1.235 negotiates MCP **`2025-11-25`** and declares the
+`elicitation` capability. That was measured — by having it connect to a probe
+server that recorded the `initialize` it sent — not inferred.
+
+It also settles the SDK question. The v2 packages implement the 2026-07-28
+revision, which removes protocol sessions and replaces server→client
+elicitation with MRTR. Migrating today would trade a working server for a
+broken one, because elicitation is what makes `asc_write` ask a human. This
+stays on `@modelcontextprotocol/sdk@1.x` until a client actually negotiates
+2026-07-28.
+
 ## Known limits
 
-- **JWS responses are decoded, not verified.** StoreKit payloads arrive signed by Apple; verifying the chain needs Apple's root certificates. Decoded values appear in `*_decoded` fields and are labelled unverified. Do not treat them as proof of purchase without checking the signature.
 - **Risk tiers are pattern-matched** from method and path. They are deliberately cautious, but read `asc_describe_endpoint` before a write rather than trusting the tier alone.
 - **Keychain storage is macOS-only.** Elsewhere, use a file path with restrictive permissions.
 - `--no-confirm` disables the gate entirely. It exists for CI; it is a poor default for an interactive agent.

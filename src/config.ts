@@ -9,6 +9,10 @@ export interface Config {
   issuerId?: string;
   keyId?: string;
   bundleId?: string;
+  /** Numeric Apple ID. Apple requires it to verify Production signatures. */
+  appAppleId?: number;
+  /** OCSP revocation checks during signature verification. */
+  onlineChecks: boolean;
   safety: SafetyMode;
   transport: 'stdio' | 'http';
   host: string;
@@ -61,6 +65,12 @@ export function loadConfig(argv: string[] = process.argv.slice(2)): Config {
     issuerId: flag(argv, 'issuer-id') ?? process.env.ASC_ISSUER_ID,
     keyId: flag(argv, 'key-id') ?? process.env.ASC_KEY_ID,
     bundleId: flag(argv, 'bundle-id') ?? process.env.ASC_BUNDLE_ID,
+    appAppleId: (() => {
+      const raw = flag(argv, 'app-apple-id') ?? process.env.ASC_APP_APPLE_ID;
+      const n = raw ? Number(raw) : NaN;
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    })(),
+    onlineChecks: !has(argv, 'no-online-checks') && process.env.ASC_NO_ONLINE_CHECKS !== '1',
     safety,
     transport,
     // Loopback by default: this process holds a key that can change pricing.
