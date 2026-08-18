@@ -21,8 +21,10 @@ const { privateKey } = generateKeyPairSync('ec', {
   publicKeyEncoding: { type: 'spki', format: 'pem' },
 });
 
+const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+
 beforeAll(() => {
-  execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'pipe' });
+  execFileSync(NPM, ['run', 'build'], { cwd: ROOT, stdio: 'pipe' });
 }, 180_000);
 
 const env = {
@@ -116,16 +118,46 @@ describe('stdio transport', () => {
     expect(out).toMatch(/--read-only/);
   });
 
-  it('fails with a usable message when no credentials are configured', () => {
+  // Refusing to hand shake makes every client report the same opaque
+  // "Connection closed", and the user then debugs a transport that is fine.
+  // Starting anyway turns a missing key into a sentence that names it.
+  it('still starts and lists its tools with no credentials configured', async () => {
     const bare = { ...process.env };
     delete bare.ASC_KEY;
     delete bare.ASC_PRIVATE_KEY_PATH;
     delete bare.ASC_PRIVATE_KEY;
-    try {
-      execFileSync('node', [ENTRY], { env: bare, encoding: 'utf8', stdio: 'pipe', timeout: 15_000 });
-      throw new Error('expected a non-zero exit');
-    } catch (e: any) {
-      expect(String(e.stderr ?? '')).toMatch(/No API key configured/);
-    }
+
+    const child = spawn('node', [ENTRY], { env: bare, stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.stdin.write(`${INIT}\n${READY}\n${LIST}\n`);
+    child.stdin.end();
+    await new Promise((r) => child.on('close', r));
+
+    const messages = out.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+    expect(messages.find((m) => m.id === 2)?.result.tools.length).toBe(11);
+  });
+
+  it('names the missing credential when a tool actually needs Apple', async () => {
+    const bare = { ...process.env };
+    delete bare.ASC_KEY;
+    delete bare.ASC_PRIVATE_KEY_PATH;
+    delete bare.ASC_PRIVATE_KEY;
+
+    const STATUS = JSON.stringify({
+      jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'asc_status', arguments: {} },
+    });
+    const child = spawn('node', [ENTRY], { env: bare, stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.stdin.write(`${INIT}\n${READY}\n${STATUS}\n`);
+    child.stdin.end();
+    await new Promise((r) => child.on('close', r));
+
+    const reply = out.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l)).find((m) => m.id === 4);
+    expect(reply.result.isError).toBe(true);
+    const body = JSON.parse(reply.result.content[0].text);
+    expect(body.error).toMatch(/No API key configured/);
+    expect(body.error).toMatch(/tools are listed, but nothing can reach Apple/);
   });
 });
