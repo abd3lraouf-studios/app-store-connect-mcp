@@ -9,11 +9,15 @@ afterEach(() => {
 });
 
 describe('credential source', () => {
-  it('refuses to start with no key, and says how to supply one', () => {
+  // Deliberately does not throw: a missing key must not stop the server
+  // starting, or the client reports "Connection closed" and the user debugs
+  // the wrong thing. The error surfaces when something actually needs Apple.
+  it('tolerates a missing key so the server can still start and explain itself', () => {
     delete process.env.ASC_KEY;
     delete process.env.ASC_PRIVATE_KEY_PATH;
     delete process.env.ASC_PRIVATE_KEY;
-    expect(() => loadConfig([])).toThrow(/No API key configured[\s\S]*keychain:/);
+    expect(() => loadConfig([])).not.toThrow();
+    expect(loadConfig([]).keyRef).toBe('');
   });
 
   it('prefers --key over the environment', () => {

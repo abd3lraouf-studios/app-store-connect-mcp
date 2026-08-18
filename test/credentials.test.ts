@@ -31,7 +31,12 @@ afterAll(() => {
   fs.rmSync(binDir, { recursive: true, force: true });
 });
 
-describe('keychain envelope', () => {
+// The Keychain is macOS-only, and the stub below is a POSIX shell script, so
+// there is nothing meaningful to assert elsewhere. The file and inline paths
+// are cross-platform and still run everywhere.
+const onMac = process.platform === 'darwin';
+
+describe.skipIf(!onMac)('keychain envelope', () => {
   it('reads the PEM and takes the identifiers from the envelope', () => {
     const envelope = Buffer.from(
       JSON.stringify({ issuerID: 'issuer-from-keychain', keyID: 'KEYFROMKC', privateKeyPEM: PEM })
@@ -116,6 +121,12 @@ describe('other sources', () => {
   it('always terminates the key with a newline', () => {
     const creds = resolveCredentials({ keyRef: PEM, issuerId: 'i', keyId: 'k' });
     expect(creds.privateKey.endsWith('\n')).toBe(true);
+  });
+});
+
+describe('no key at all', () => {
+  it('says how to supply one', () => {
+    expect(() => resolveCredentials({ keyRef: '' })).toThrow(/No API key configured[\s\S]*keychain:/);
   });
 });
 

@@ -88,7 +88,15 @@ function readKeychain(ref: string): { pem: string; issuerId?: string; keyId?: st
   };
 }
 
+export const NO_KEY_MESSAGE =
+  'No API key configured. Set one of:\n' +
+  `  ASC_KEY=${KEYCHAIN_SCHEME}<service>   (recommended — macOS Keychain)\n` +
+  '  ASC_PRIVATE_KEY_PATH=/path/AuthKey.p8\n' +
+  '  ASC_PRIVATE_KEY=<pem>                 (discouraged; visible via ps -E)';
+
 export function resolveCredentials(input: CredentialInput): Credentials {
+  if (!input.keyRef) throw new Error(NO_KEY_MESSAGE);
+
   let pem: string;
   let issuerId = input.issuerId;
   let keyId = input.keyId;

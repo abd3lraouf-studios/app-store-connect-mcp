@@ -71,14 +71,22 @@ jobs:
         with: { node-version: '24', cache: npm }
       - run: npm ci --ignore-scripts
       - run: npm run build
-      - name: MCP Inspector smoke test
+      # Runs with NO credentials on purpose. The server must still start and
+      # list its tools; a missing key is reported by asc_status, not by
+      # refusing to hand shake — otherwise every client shows the same opaque
+      # "Connection closed" and the user debugs a transport that is fine.
+      - name: MCP Inspector smoke test (no credentials)
         # --stored-auth-only keeps a non-TTY run from hanging on an OAuth
         # prompt. A tool returning isError exits 5, so failures are caught.
         run: |
           npx -y @modelcontextprotocol/inspector --cli node dist/index.js \
             --method tools/list --format json --stored-auth-only > tools.json
-          node -e "const t=require('./tools.json');if(!t.tools?.length)throw new Error('no tools listed');console.log(t.tools.length+' tools')"
-        env:
-          ASC_KEY: ${{ '-----BEGIN PRIVATE KEY-----' }}
-          ASC_ISSUER_ID: ci
-          ASC_KEY_ID: ci
+          node -e "
+            const t = require('./tools.json');
+            if (!t.tools?.length) throw new Error('no tools listed');
+            const names = t.tools.map(x => x.name);
+            for (const required of ['asc_status', 'asc_call', 'asc_write']) {
+              if (!names.includes(required)) throw new Error('missing tool: ' + required);
+            }
+            console.log(t.tools.length + ' tools: ' + names.join(', '));
+          "

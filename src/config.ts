@@ -1,7 +1,7 @@
 /**
  * Configuration from flags and environment, flags winning.
  */
-import { KEYCHAIN_SCHEME } from './credentials.js';
+
 import type { SafetyMode } from './safety.js';
 
 export interface Config {
@@ -44,14 +44,9 @@ export function loadConfig(argv: string[] = process.argv.slice(2)): Config {
     process.env.ASC_PRIVATE_KEY ??
     '';
 
-  if (!keyRef) {
-    throw new Error(
-      'No API key configured. Set one of:\n' +
-        `  ASC_KEY=${KEYCHAIN_SCHEME}<service>   (recommended — macOS Keychain)\n` +
-        '  ASC_PRIVATE_KEY_PATH=/path/AuthKey.p8\n' +
-        '  ASC_PRIVATE_KEY=<pem>                 (discouraged; visible via ps -E)'
-    );
-  }
+  // A missing key is not a startup failure. Refusing to start means the client
+  // reports "Connection closed" and the user debugs the transport instead of
+  // their configuration; the error is raised where it can be explained.
 
   let safety: SafetyMode = 'default';
   if (has(argv, 'read-only')) safety = 'read-only';

@@ -32,7 +32,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import type { Config } from './config.js';
-import { resolveCredentials } from './credentials.js';
+import { resolveCredentials, type Credentials } from './credentials.js';
 import { TokenMinter } from './jwt.js';
 import { ApiClient, ApiError, renderPath } from './http.js';
 import { SafetyGate, isWrite, RISK_EXPLANATION, type Risk } from './safety.js';
@@ -62,19 +62,47 @@ interface Resolved {
 }
 
 export function createServer(config: Config): Server {
-  const creds = resolveCredentials({
-    keyRef: config.keyRef,
-    issuerId: config.issuerId,
-    keyId: config.keyId,
-  });
-  const minter = new TokenMinter(creds, config.bundleId);
+  /**
+   * Credentials are resolved lazily, and a failure is remembered rather than
+   * thrown.
+   *
+   * Refusing to construct the server means it never completes a handshake, and
+   * every MCP client reports that the same way: "Connection closed". The user
+   * is then debugging a transport that is fine. Starting anyway lets tools/list
+   * answer, and turns a misconfigured key into a sentence that names the
+   * problem — which is the whole job of asc_status.
+   */
+  let creds: Credentials | undefined;
+  let credentialError: string | undefined;
+  try {
+    creds = resolveCredentials({
+      keyRef: config.keyRef,
+      issuerId: config.issuerId,
+      keyId: config.keyId,
+    });
+  } catch (error) {
+    credentialError = error instanceof Error ? error.message : String(error);
+  }
+
+  const minter = creds ? new TokenMinter(creds, config.bundleId) : undefined;
   const verifier = new JwsVerifier({
     environment: config.storekitEnvironment,
     bundleId: config.bundleId,
     appAppleId: config.appAppleId,
     onlineChecks: config.onlineChecks,
   });
-  const client = new ApiClient(minter, { verifier });
+  const client = minter ? new ApiClient(minter, { verifier }) : undefined;
+
+  /** Anything that talks to Apple needs this; tools/list and prompts do not. */
+  function requireClient(): ApiClient {
+    if (!client) {
+      throw new Error(
+        `${credentialError ?? 'No credentials are configured.'}\n\n` +
+          'The server is running and its tools are listed, but nothing can reach Apple until this is fixed.'
+      );
+    }
+    return client;
+  }
   const gate = new SafetyGate(config.safety);
   const index = loadIndex();
   const store = new ResponseStore();
@@ -387,7 +415,7 @@ export function createServer(config: Config): Server {
     try {
       switch (name) {
         case 'asc_status': {
-          const probe = await client.request({
+          const probe = await requireClient().request({
             baseUrl: index.baseUrl,
             method: 'GET',
             path: '/v1/apps',
@@ -397,16 +425,16 @@ export function createServer(config: Config): Server {
           const apps = (probe.data as any)?.data ?? [];
           return text({
             connected: true,
-            keySource: creds.source,
-            keyId: creds.keyId,
-            issuerId: creds.issuerId,
+            keySource: creds?.source,
+            keyId: creds?.keyId,
+            issuerId: creds?.issuerId,
             bundleId: config.bundleId ?? '(unset — App Store Server API calls will fail)',
             safetyMode: gate.describeMode,
             elicitation: server.getClientCapabilities()?.elicitation
               ? 'supported — writes prompt the user directly'
               : 'unavailable — writes fall back to a confirmation token',
             storekitEnvironment: config.storekitEnvironment,
-            rateLimit: client.limiter.state,
+            rateLimit: requireClient().limiter.state,
             connectApi: { version: index.apiVersion, operations: index.operationCount },
             storeKitApi: {
               operations: STOREKIT_OPERATIONS.length,
@@ -568,7 +596,7 @@ export function createServer(config: Config): Server {
 
           if (args.paginate && op.method === 'GET') {
             const pages = Math.min(args.max_pages ?? 10, MAX_PAGES_CAP);
-            const result = await client.requestAll(spec, pages);
+            const result = await requireClient().requestAll(spec, pages);
             const body = result.data as Record<string, any>;
             if (body.pages >= pages) {
               body.pageCapReached =
@@ -577,7 +605,7 @@ export function createServer(config: Config): Server {
             return sized(result.data, name);
           }
 
-          const result = await client.request(spec);
+          const result = await requireClient().request(spec);
           return sized(result.data, name);
         }
 
@@ -585,7 +613,7 @@ export function createServer(config: Config): Server {
           const macro = MACRO_BY_NAME.get(name);
           if (!macro) return text(`Unknown tool: ${name}`, true);
 
-          const ctx: MacroContext = { client, baseUrl: index.baseUrl };
+          const ctx: MacroContext = { client: requireClient(), baseUrl: index.baseUrl };
 
           // Writes clear the same gate as asc_write. Routing them through one
           // implementation is what stops a macro quietly becoming a way round
@@ -632,7 +660,7 @@ export function createServer(config: Config): Server {
           if (outcome.kind === 'result') return sized(outcome.value, name);
 
           // A planned write: the gate already cleared, so send it.
-          const sent = await client.request({
+          const sent = await requireClient().request({
             baseUrl: index.baseUrl,
             method: outcome.request.method,
             path: outcome.request.path,
