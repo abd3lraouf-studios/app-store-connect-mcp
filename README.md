@@ -6,13 +6,34 @@ An MCP server covering the App Store Connect API *and* the App Store Server API
 Cursor and anything else that speaks [Model Context Protocol](https://modelcontextprotocol.io).
 
 [![CI](https://github.com/abd3lraouf-studios/app-store-connect-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/abd3lraouf-studios/app-store-connect-mcp/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-289%20passing-brightgreen)](#receipts)
+[![Tests](https://img.shields.io/badge/tests-289%20passing-brightgreen?logo=vitest&logoColor=white)](#receipts)
 [![Coverage](https://img.shields.io/badge/line%20coverage-93%25-brightgreen)](#receipts)
-[![Node](https://img.shields.io/badge/node-%E2%89%A522.19-blue)](package.json)
 [![Licence](https://img.shields.io/badge/licence-BUSL--1.1-orange)](LICENSE)
+
+[![Operations](https://img.shields.io/badge/Apple%20API%20operations-1%2C293-0b5fff)](#keeping-current-with-apple)
+[![Tools](https://img.shields.io/badge/MCP%20tools-11-0b5fff)](#the-eleven-tools)
+[![MCP](https://img.shields.io/badge/protocol-MCP%202025--11--25-8a3ffc?logo=anthropic&logoColor=white)](#receipts)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522.19-339933?logo=nodedotjs&logoColor=white)](package.json)
+[![Platform](https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey?logo=apple&logoColor=white)](#known-limits)
 
 ```
 1,293 operations · 11 tools · key never on disk · Apple signatures verified
+```
+
+```mermaid
+flowchart LR
+    A["Claude<br/>Cursor · any MCP client"] -->|"search · call · write"| B["app-store-connect-mcp<br/>11 tools"]
+    B --> C{"risk tier"}
+    C -->|"READ · 811 ops"| D["Apple<br/>App Store Connect API"]
+    C -->|"WRITE · 482 ops"| E["ask a human first"]
+    E -->|approved| D
+    E -->|declined| F["nothing is sent"]
+    B --> G["App Store Server API<br/>StoreKit 2 · signatures verified"]
+
+    style E fill:#ffe8b3,stroke:#c98a00,color:#000
+    style F fill:#ffd6d6,stroke:#c00,color:#000
+    style D fill:#d6f5d6,stroke:#2a2,color:#000
+    style G fill:#d6f5d6,stroke:#2a2,color:#000
 ```
 
 ---
@@ -30,6 +51,13 @@ product.
 **You want every endpoint as its own tool.** Some servers register 890. Yours
 would spend six figures of context on tool definitions before answering a single
 question. This registers 11 and finds the rest by searching.
+
+```text
+tool definitions loaded into context, before you ask anything
+
+  one tool per endpoint   ███████████████████████████████████   >100k tokens
+  this server             ▌                                       ~1k tokens
+```
 
 **You're on Windows or Linux and wanted Keychain.** Keychain storage is macOS
 only. You can use a file path elsewhere, but the best part of this is
@@ -179,6 +207,36 @@ with Apple forever and buys nothing `asc_call` doesn't already do:
 | `asc_upload_screenshot` | Apple's reserve → PUT-at-offsets → commit-with-MD5 sequence, across two hosts. |
 | `asc_analytics_report` | Five hops → signed URL → gunzip → rows, with **every segment stitched**. |
 
+<details>
+<summary><b>Why <code>asc_upload_screenshot</code> cannot be one API call</b></summary>
+
+Apple's asset flow spans two hosts and ends in a checksum that fails *silently*
+if you get it wrong — the upload simply sits in `AWAITING_UPLOAD` looking like
+nothing happened. `uploadOperations` appears in Apple's OpenAPI document only as
+a value in a `fields[]` enum, so an agent reading the spec can see the field
+exists and still have no idea it must act on it.
+
+```mermaid
+sequenceDiagram
+    participant M as Claude
+    participant S as this server
+    participant A as App Store Connect
+    participant U as Apple asset host
+
+    M->>S: asc_upload_screenshot(set, file)
+    S->>A: POST /v1/appScreenshots (fileName, fileSize)
+    A-->>S: id + uploadOperations[]
+    loop each byte range
+        S->>U: PUT bytes at offset, Apple's headers
+        Note over S,U: pre-signed URL — no bearer token sent
+    end
+    S->>A: PATCH uploaded=true + MD5 checksum
+    A-->>S: assetDeliveryState
+    S-->>M: state, and how to clean up if it failed
+```
+
+</details>
+
 Plus **four resources** (`@asc:cookbook`, `@asc:enums`, `@asc:risk`,
 `@asc:sources`) and **four workflows** as slash commands:
 `/mcp__asc__release-readiness`, `pricing-audit`, `review-triage`,
@@ -191,7 +249,7 @@ Plus **four resources** (`@asc:cookbook`, `@asc:enums`, `@asc:risk`,
 An HTTP method is a poor proxy for consequence. `PATCH /v1/subscriptionPrices`
 and `PATCH /v1/appInfos/{id}` are both writes; only one changes what customers
 are charged, and neither is undone by repeating it. So every operation carries a
-tier:
+tier (counts are App Store Connect; StoreKit 2 adds 14 reads and 16 writes):
 
 | Tier | Count | |
 |---|---|---|
@@ -202,6 +260,26 @@ tier:
 | `RELEASE` | 12 | Builds, submissions, what ships. |
 | `ACCESS` | 12 | Who can reach the account. |
 | `INFRASTRUCTURE` | 11 | Certificates, identifiers, callback URLs. |
+
+```mermaid
+flowchart TD
+    A["asc_write called"] --> B{"--read-only?"}
+    B -->|yes| Z["blocked"]
+    B -->|no| C{"risk tier"}
+    C -->|"WRITE"| S["send it"]
+    C -->|"REVENUE · DESTRUCTIVE<br/>INFRASTRUCTURE · ACCESS · RELEASE"| D{"client supports<br/>elicitation?"}
+    D -->|yes| E["ask the person<br/>method · path · body · tier"]
+    D -->|no| F["issue a token<br/>hash-bound to this exact request"]
+    E -->|accepted| S
+    E -->|declined| Z
+    F --> G["caller repeats the call<br/>with the token"]
+    G --> S
+
+    style Z fill:#ffd6d6,stroke:#c00,color:#000
+    style E fill:#ffe8b3,stroke:#c98a00,color:#000
+    style F fill:#ffe8b3,stroke:#c98a00,color:#000
+    style S fill:#d6f5d6,stroke:#2a2,color:#000
+```
 
 The bottom five ask before running. Where your client supports **elicitation**,
 it asks *you* directly, showing the method, path, body and tier. Otherwise it
