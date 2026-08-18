@@ -21,10 +21,14 @@ const { privateKey } = generateKeyPairSync('ec', {
   publicKeyEncoding: { type: 'spki', format: 'pem' },
 });
 
-const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
+// Build without going through npm. On Windows, Node refuses to spawn a .cmd
+// without a shell (the CVE-2024-27980 fix), so `npm run build` fails with
+// EINVAL there. Invoking node directly is both cross-platform and faster.
 beforeAll(() => {
-  execFileSync(NPM, ['run', 'build'], { cwd: ROOT, stdio: 'pipe' });
+  const run = (script: string, args: string[] = []) =>
+    execFileSync(process.execPath, [script, ...args], { cwd: ROOT, stdio: 'pipe' });
+  run('scripts/build-index.mjs');
+  run(path.join('node_modules', 'typescript', 'bin', 'tsc'), ['-p', 'tsconfig.build.json']);
 }, 180_000);
 
 const env = {

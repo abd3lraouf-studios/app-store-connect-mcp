@@ -82,8 +82,11 @@ jobs:
           npx -y @modelcontextprotocol/inspector --cli node dist/index.js \
             --method tools/list --format json --stored-auth-only > tools.json
           node -e "
-            const t = require('./tools.json');
-            if (!t.tools?.length) throw new Error('no tools listed');
+            const raw = require('./tools.json');
+            // --format json wraps the payload in a result envelope; older
+            // versions returned it bare. Accept either.
+            const t = raw.result ?? raw;
+            if (!t.tools?.length) throw new Error('no tools listed in: ' + JSON.stringify(raw).slice(0, 300));
             const names = t.tools.map(x => x.name);
             for (const required of ['asc_status', 'asc_call', 'asc_write']) {
               if (!names.includes(required)) throw new Error('missing tool: ' + required);
