@@ -75,7 +75,7 @@ describe('stdio transport', () => {
     const { stdout } = await run([INIT, READY, LIST]);
     const messages = stdout.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
     expect(messages.find((m) => m.id === 1)?.result.serverInfo.name).toBe('app-store-connect-mcp');
-    expect(messages.find((m) => m.id === 2)?.result.tools.length).toBe(4);
+    expect(messages.find((m) => m.id === 2)?.result.tools.length).toBe(5);
   });
 
   it('logs its banner to stderr, never stdout', async () => {
