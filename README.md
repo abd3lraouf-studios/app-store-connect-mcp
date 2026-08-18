@@ -1,6 +1,6 @@
 # app-store-connect-mcp
 
-An MCP server for **both** of Apple's commerce APIs — App Store Connect (1,263 operations) and the App Store Server API / StoreKit 2 (30 operations) — behind four tools, with the private key in the macOS Keychain and consequential writes gated behind an explicit confirmation.
+An MCP server for **both** of Apple's commerce APIs — App Store Connect (1,263 operations) and the App Store Server API / StoreKit 2 (30 operations) — behind five tools, with the private key in the macOS Keychain and consequential writes gated behind an explicit confirmation.
 
 ```
 1,293 operations · 5 tools · key never on disk · verified against the live APIs
