@@ -46,6 +46,7 @@ const config: Config = {
   transport: 'stdio',
   host: '127.0.0.1',
   port: 8787,
+  redactPii: false,
   storekitEnvironment: 'Production',
 };
 

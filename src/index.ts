@@ -28,6 +28,8 @@ Transport:
 
 Other:
   --storekit-env Production|Sandbox
+  --redact-pii    Mask tester names and email local-parts, keeping the domain
+                  (ASC_REDACT_PII=1).
 `;
 
 /**

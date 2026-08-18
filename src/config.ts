@@ -16,6 +16,8 @@ export interface Config {
   /** Bearer token required by the HTTP transport. */
   httpToken?: string;
   storekitEnvironment: 'Production' | 'Sandbox';
+  /** Mask tester names and email local-parts, keeping the domain. */
+  redactPii: boolean;
 }
 
 function flag(argv: string[], name: string): string | undefined {
@@ -66,6 +68,7 @@ export function loadConfig(argv: string[] = process.argv.slice(2)): Config {
     host: flag(argv, 'host') ?? process.env.ASC_HTTP_HOST ?? '127.0.0.1',
     port: Number(flag(argv, 'port') ?? process.env.ASC_HTTP_PORT ?? 8787),
     httpToken: flag(argv, 'http-token') ?? process.env.ASC_HTTP_TOKEN,
+    redactPii: has(argv, 'redact-pii') || process.env.ASC_REDACT_PII === '1',
     storekitEnvironment:
       (flag(argv, 'storekit-env') ?? process.env.ASC_STOREKIT_ENV ?? 'Production') === 'Sandbox'
         ? 'Sandbox'

@@ -43,6 +43,7 @@ import { fitToBudget, DEFAULT_MAX_CHARS } from './truncate.js';
 import { PROMPTS, renderPrompt } from './prompts.js';
 import { MACROS, MACRO_BY_NAME, runMacro, type MacroContext } from './macros/index.js';
 import { begin, end } from './inflight.js';
+import { findUntrusted, untrustedNotice, redactPii } from './untrusted.js';
 
 const MAX_PAGES_CAP = 50;
 
@@ -301,15 +302,35 @@ export function createServer(config: Config): Server {
   });
 
   /**
-   * Return a payload, moving it to a resource if it will not fit.
-   * A list cut short says so, and says how to narrow the request.
+   * Return a payload: redact if asked, mark anything strangers wrote, move it
+   * to a resource if it will not fit, and attach it as structured content for
+   * clients that read it.
    */
   const sized = (value: unknown, tool: string) => {
+    if (config.redactPii) redactPii(value);
+
+    const provenance = findUntrusted(value);
     const outcome = fitToBudget(value, DEFAULT_MAX_CHARS);
-    if (!outcome.truncated) return text(value);
-    const uri = store.store(tool, outcome.overflow as string);
-    const withPointer = { ...(JSON.parse(outcome.text) as Record<string, unknown>), fullResult: uri };
-    return text(withPointer);
+
+    let body: unknown = value;
+    if (outcome.truncated) {
+      const uri = store.store(tool, outcome.overflow as string);
+      body = { ...(JSON.parse(outcome.text) as Record<string, unknown>), fullResult: uri };
+    }
+
+    const serialised = outcome.truncated ? JSON.stringify(body, null, 2) : outcome.text;
+
+    // The notice leads, because a warning after several hundred lines of JSON
+    // is a warning nobody reads.
+    return {
+      content: [
+        { type: 'text' as const, text: provenance ? `${untrustedNotice(provenance)}\n\n${serialised}` : serialised },
+      ],
+      structuredContent: {
+        result: body,
+        ...(provenance ? { untrustedText: provenance } : {}),
+      } as Record<string, unknown>,
+    };
   };
 
   /**
