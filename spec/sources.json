@@ -1,0 +1,11 @@
+{
+  "fetchedAt": "2026-08-18T19:50:54.184Z",
+  "appStoreConnect": {
+    "url": "https://developer.apple.com/sample-code/app-store-connect/app-store-connect-openapi-specification.zip",
+    "apiVersion": "4.4.1"
+  },
+  "appStoreServer": {
+    "source": "apple/app-store-server-library-node@v3.1.0",
+    "note": "Apple publishes no OpenAPI document for this API."
+  }
+}

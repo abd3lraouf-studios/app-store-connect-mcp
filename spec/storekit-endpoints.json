@@ -1,0 +1,205 @@
+{
+  "source": "apple/app-store-server-library-node@v3.1.0",
+  "fetchedFrom": "https://raw.githubusercontent.com/apple/app-store-server-library-node/v3.1.0/index.ts",
+  "operationCount": 30,
+  "operations": [
+    {
+      "method": "GET",
+      "path": "/inApps/{version}/history/{anyTransactionId}",
+      "pathParams": [
+        "version",
+        "anyTransactionId"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v1/lookup/{orderId}",
+      "pathParams": [
+        "orderId"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/inApps/v1/messaging/default/{productId}/{locale}",
+      "pathParams": [
+        "productId",
+        "locale"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v1/messaging/default/{productId}/{locale}",
+      "pathParams": [
+        "productId",
+        "locale"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/inApps/v1/messaging/default/{productId}/{locale}",
+      "pathParams": [
+        "productId",
+        "locale"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/inApps/v1/messaging/image/{imageIdentifier}",
+      "pathParams": [
+        "imageIdentifier"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/inApps/v1/messaging/image/{imageIdentifier}",
+      "pathParams": [
+        "imageIdentifier"
+      ],
+      "contentType": "image/png"
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v1/messaging/image/list",
+      "pathParams": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/inApps/v1/messaging/message/{messageIdentifier}",
+      "pathParams": [
+        "messageIdentifier"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/inApps/v1/messaging/message/{messageIdentifier}",
+      "pathParams": [
+        "messageIdentifier"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v1/messaging/message/list",
+      "pathParams": []
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v1/messaging/performanceTest/result/{requestId}",
+      "pathParams": [
+        "requestId"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/inApps/v1/messaging/performanceTest",
+      "pathParams": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/inApps/v1/messaging/realtime/url",
+      "pathParams": []
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v1/messaging/realtime/url",
+      "pathParams": []
+    },
+    {
+      "method": "PUT",
+      "path": "/inApps/v1/messaging/realtime/url",
+      "pathParams": []
+    },
+    {
+      "method": "POST",
+      "path": "/inApps/v1/notifications/history",
+      "pathParams": []
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v1/notifications/test/{testNotificationToken}",
+      "pathParams": [
+        "testNotificationToken"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/inApps/v1/notifications/test",
+      "pathParams": []
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v1/subscriptions/{anyTransactionId}",
+      "pathParams": [
+        "anyTransactionId"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/inApps/v1/subscriptions/extend/{originalTransactionId}",
+      "pathParams": [
+        "originalTransactionId"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v1/subscriptions/extend/mass/{productId}/{requestIdentifier}",
+      "pathParams": [
+        "productId",
+        "requestIdentifier"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/inApps/v1/subscriptions/extend/mass",
+      "pathParams": []
+    },
+    {
+      "method": "PUT",
+      "path": "/inApps/v1/transactions/{originalTransactionId}/appAccountToken",
+      "pathParams": [
+        "originalTransactionId"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/inApps/v1/transactions/{transactionId}/finish",
+      "pathParams": [
+        "transactionId"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v1/transactions/{transactionId}",
+      "pathParams": [
+        "transactionId"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v1/transactions/appTransactions/{anyTransactionId}",
+      "pathParams": [
+        "anyTransactionId"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/inApps/v1/transactions/consumption/{transactionId}",
+      "pathParams": [
+        "transactionId"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/inApps/v2/refund/lookup/{anyTransactionId}",
+      "pathParams": [
+        "anyTransactionId"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/inApps/v2/transactions/consumption/{transactionId}",
+      "pathParams": [
+        "transactionId"
+      ]
+    }
+  ]
+}
