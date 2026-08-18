@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+title: app-store-connect-mcp
+message: An MCP server for the App Store Connect and App Store Server APIs.
+type: software
+authors:
+  - family-names: Sabri
+    given-names: Abdelraouf
+repository-code: https://github.com/abd3lraouf-studios/app-store-connect-mcp
+license: BUSL-1.1
+version: 1.0.0
+keywords:
+  - model-context-protocol
+  - app-store-connect
+  - storekit

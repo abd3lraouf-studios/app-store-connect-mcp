@@ -1,0 +1,47 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.abd3lraouf-studios/app-store-connect-mcp",
+  "description": "App Store Connect and StoreKit 2 for AI agents: 1,293 operations behind 11 tools, with verified Apple signatures and confirmation before any write.",
+  "status": "active",
+  "repository": {
+    "url": "https://github.com/abd3lraouf-studios/app-store-connect-mcp",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@abd3lraouf-studios/app-store-connect-mcp",
+      "version": "1.0.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "ASC_KEY",
+          "description": "keychain:<service> (recommended), or a path to your AuthKey .p8",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "ASC_ISSUER_ID",
+          "description": "App Store Connect issuer ID. Not needed if it is stored in the keychain envelope.",
+          "isRequired": false
+        },
+        {
+          "name": "ASC_KEY_ID",
+          "description": "API key ID. Not needed if it is stored in the keychain envelope.",
+          "isRequired": false
+        },
+        {
+          "name": "ASC_BUNDLE_ID",
+          "description": "Required for App Store Server API calls and to verify Apple's signatures.",
+          "isRequired": false
+        },
+        {
+          "name": "ASC_APP_APPLE_ID",
+          "description": "Numeric Apple ID. Apple requires it to verify Production signatures.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

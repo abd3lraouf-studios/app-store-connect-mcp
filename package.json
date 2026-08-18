@@ -1,7 +1,7 @@
 {
   "name": "@abd3lraouf-studios/app-store-connect-mcp",
   "version": "1.0.0",
-  "description": "App Store Connect + App Store Server (StoreKit 2) MCP server. Keychain-backed credentials, full API coverage through parameterised dispatch, write-safety gating, stdio and HTTP transports.",
+  "description": "App Store Connect MCP server for Claude Code, Claude Desktop and Cursor. 1,293 App Store Connect and StoreKit 2 (App Store Server API) operations behind 11 tools, with macOS Keychain credentials, Apple JWS signature verification and risk-tiered write confirmation.",
   "type": "module",
   "bin": {
     "asc-mcp": "dist/index.js"
@@ -52,12 +52,25 @@
   },
   "keywords": [
     "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "claude",
+    "claude-code",
+    "anthropic",
     "app-store-connect",
+    "app-store-connect-api",
     "appstoreconnect",
-    "storekit",
     "app-store-server-api",
+    "storekit",
+    "storekit2",
+    "testflight",
+    "app-review",
     "ios",
-    "apple"
+    "macos",
+    "apple",
+    "subscriptions",
+    "in-app-purchase",
+    "aso"
   ],
   "publishConfig": {
     "access": "public"
@@ -68,5 +81,11 @@
       "default": "./dist/index.js"
     },
     "./package.json": "./package.json"
-  }
+  },
+  "mcpName": "io.github.abd3lraouf-studios/app-store-connect-mcp",
+  "homepage": "https://github.com/abd3lraouf-studios/app-store-connect-mcp",
+  "bugs": {
+    "url": "https://github.com/abd3lraouf-studios/app-store-connect-mcp/issues"
+  },
+  "author": "Abdelraouf Sabri"
 }
