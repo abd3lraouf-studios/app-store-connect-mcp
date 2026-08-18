@@ -37,7 +37,7 @@ interface SpecIndex {
 }
 
 let index: SpecIndex | undefined;
-let fullSpec: any | undefined;
+let fullSpec: Record<string, any> | undefined;
 
 export function loadIndex(): SpecIndex {
   if (index) return index;

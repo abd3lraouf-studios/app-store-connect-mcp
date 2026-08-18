@@ -27,7 +27,7 @@ beforeAll(() => {
 
 const env = {
   ...process.env,
-  ASC_KEY: privateKey as unknown as string,
+  ASC_KEY: privateKey,
   ASC_ISSUER_ID: 'issuer-uuid',
   ASC_KEY_ID: 'ABC123KEYD',
   ASC_BUNDLE_ID: 'com.example.app',

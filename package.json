@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "build:index": "node scripts/build-index.mjs",
-    "build": "npm run build:index && tsc",
+    "build": "npm run build:index && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "fetch:specs": "node scripts/fetch-specs.mjs",
@@ -21,7 +21,9 @@
     "build:types": "npx -y openapi-typescript@7 spec/apple-openapi.json -o spec/apple-api.d.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "preflight": "node scripts/preflight-release.mjs",
+    "lint": "eslint src test scripts"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -37,8 +39,10 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.10.0",
     "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^9.39.5",
     "msw": "^2.15.0",
-    "typescript": "^5.7.2",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.67.0",
     "vitest": "^4.1.11"
   },
   "repository": {

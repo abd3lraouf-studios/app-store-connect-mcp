@@ -19,7 +19,7 @@ const PORT = 8899;
 const TOKEN = 'test-token-value';
 
 const config: Config = {
-  keyRef: privateKey as unknown as string,
+  keyRef: privateKey,
   issuerId: 'issuer-uuid',
   keyId: 'ABC123KEYD',
   bundleId: 'com.example.app',
@@ -81,7 +81,7 @@ describe('a running server', () => {
   it('answers /healthz without authentication', async () => {
     const res = await fetch(`${url}/healthz`);
     expect(res.status).toBe(200);
-    expect((await res.json()).status).toBe('ok');
+    expect(((await res.json()) as any).status).toBe('ok');
   });
 
   it('rejects an unauthenticated MCP request', async () => {
@@ -129,7 +129,7 @@ describe('a running server', () => {
       body: '{}',
     });
     expect(res.status).toBe(403);
-    expect((await res.json()).error).toMatch(/origin/i);
+    expect(((await res.json()) as any).error).toMatch(/origin/i);
   });
 
   it('accepts a correctly authenticated initialize and returns a session', async () => {

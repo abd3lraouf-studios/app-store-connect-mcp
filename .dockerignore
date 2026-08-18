@@ -1,0 +1,10 @@
+.git
+node_modules
+dist
+coverage
+test
+.github
+*.tgz
+.env*
+**/*.p8
+**/AuthKey*

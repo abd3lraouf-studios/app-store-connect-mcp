@@ -1,0 +1,34 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # Required for npm trusted publishing. With OIDC configured, npm
+      # generates provenance automatically — no --provenance flag, no token.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+      # Trusted publishing needs npm >= 11.5.1.
+      - run: npm install -g npm@latest
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Release pre-flight
+        run: node scripts/preflight-release.mjs
+      - run: npm publish
