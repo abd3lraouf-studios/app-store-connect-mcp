@@ -41,6 +41,8 @@ import { STOREKIT_BY_ID, STOREKIT_OPERATIONS, STOREKIT_HOSTS } from './storekit.
 import { ResponseStore, staticResources, OVERFLOW_SCHEME } from './resources.js';
 import { fitToBudget, DEFAULT_MAX_CHARS } from './truncate.js';
 import { PROMPTS, renderPrompt } from './prompts.js';
+import { MACROS, MACRO_BY_NAME, runMacro, type MacroContext } from './macros/index.js';
+import { begin, end } from './inflight.js';
 
 const MAX_PAGES_CAP = 50;
 
@@ -217,6 +219,33 @@ export function createServer(config: Config): Server {
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: { ...RESULT_SIZE_META, 'anthropic/requiresUserInteraction': true },
       },
+      // Composite tools. Each collapses a chain the raw API cannot express in
+      // one call; anything that merely saved a request was left out.
+      ...MACROS.map((m) => ({
+        name: m.name,
+        description: m.description,
+        inputSchema:
+          m.risk === 'READ'
+            ? m.inputSchema
+            : {
+                ...m.inputSchema,
+                properties: {
+                  ...(m.inputSchema.properties as Record<string, unknown>),
+                  confirm: {
+                    type: 'string',
+                    description: 'Confirmation token from a previous gated call. Not needed when the user is prompted directly.',
+                  },
+                },
+              },
+        annotations:
+          m.risk === 'READ'
+            ? { readOnlyHint: true, openWorldHint: true }
+            : { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        _meta:
+          m.risk === 'READ'
+            ? RESULT_SIZE_META
+            : { ...RESULT_SIZE_META, 'anthropic/requiresUserInteraction': true },
+      })),
     ],
   }));
 
@@ -326,6 +355,7 @@ export function createServer(config: Config): Server {
     const { name, arguments: rawArgs } = request.params;
     const args = (rawArgs ?? {}) as Record<string, any>;
 
+    begin();
     try {
       switch (name) {
         case 'asc_status': {
@@ -520,8 +550,66 @@ export function createServer(config: Config): Server {
           return sized(result.data, name);
         }
 
-        default:
-          return text(`Unknown tool: ${name}`, true);
+        default: {
+          const macro = MACRO_BY_NAME.get(name);
+          if (!macro) return text(`Unknown tool: ${name}`, true);
+
+          const ctx: MacroContext = { client, baseUrl: index.baseUrl };
+
+          // Writes clear the same gate as asc_write. Routing them through one
+          // implementation is what stops a macro quietly becoming a way round
+          // the confirmation.
+          if (isWrite(macro.risk)) {
+            const summary = macro.summarise?.(args) ?? `Run ${macro.name}.`;
+            const pseudo: Resolved = {
+              api: 'connect',
+              id: macro.name,
+              method: 'MACRO',
+              pathTemplate: macro.name,
+              risk: macro.risk,
+              baseUrl: index.baseUrl,
+            };
+
+            const approved = await askUser(pseudo, summary, args);
+            if (approved === false) {
+              return text({ blocked: true, message: 'The user declined this change.' }, true);
+            }
+            if (approved === undefined) {
+              const blocked = gate.check(
+                { operationId: macro.name, method: 'MACRO', path: macro.name, query: undefined, body: args },
+                macro.risk,
+                args.confirm
+              );
+              if (blocked) {
+                return text(
+                  blocked.token
+                    ? {
+                        confirmationRequired: true,
+                        risk: macro.risk,
+                        token: blocked.token,
+                        willDo: summary,
+                        message: blocked.reason,
+                      }
+                    : { blocked: true, message: blocked.reason },
+                  !blocked.token
+                );
+              }
+            }
+          }
+
+          const outcome = await runMacro(name, ctx, args);
+          if (outcome.kind === 'result') return sized(outcome.value, name);
+
+          // A planned write: the gate already cleared, so send it.
+          const sent = await client.request({
+            baseUrl: index.baseUrl,
+            method: outcome.request.method,
+            path: outcome.request.path,
+            body: outcome.request.body,
+            audience: 'connect',
+          });
+          return sized({ applied: true, effect: outcome.effect, ...(outcome.context as object), result: sent.data }, name);
+        }
       }
     } catch (error) {
       if (error instanceof ApiError) {
@@ -549,6 +637,8 @@ export function createServer(config: Config): Server {
         );
       }
       return text({ error: error instanceof Error ? error.message : String(error) }, true);
+    } finally {
+      end();
     }
   });
 

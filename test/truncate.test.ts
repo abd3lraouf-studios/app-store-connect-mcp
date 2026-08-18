@@ -47,3 +47,23 @@ describe('fitToBudget', () => {
     expect(out.overflow).toBeTruthy();
   });
 });
+
+describe('analytics-shaped results', () => {
+  // Analytics returns `rows`, not `data` or `items`. Without that, a large
+  // report degraded to "not a list that can be shortened" and lost everything.
+  it('trims rows rather than giving up on the whole result', () => {
+    const out = fitToBudget(
+      {
+        columns: ['Date', 'N'],
+        rowCount: 2000,
+        rows: Array.from({ length: 2000 }, (_, i) => ({ Date: '2026-08-01', N: String(i), pad: 'y'.repeat(80) })),
+      },
+      6_000
+    );
+    expect(out.truncated).toBe(true);
+    const parsed = JSON.parse(out.text);
+    expect(parsed.rows.length).toBeGreaterThan(0);
+    expect(parsed.rows.length).toBeLessThan(2000);
+    expect(parsed.columns).toEqual(['Date', 'N']);
+  });
+});

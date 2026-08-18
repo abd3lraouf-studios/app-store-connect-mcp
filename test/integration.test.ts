@@ -59,10 +59,16 @@ describe('tools/list', () => {
     const { client, close } = await connect();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      'asc_analytics_report',
       'asc_call',
       'asc_describe_endpoint',
+      'asc_listing_screenshots',
+      'asc_preflight_version',
+      'asc_pricing_get',
+      'asc_pricing_set',
       'asc_search_endpoints',
       'asc_status',
+      'asc_upload_screenshot',
       'asc_write',
     ]);
     await close();
@@ -316,7 +322,7 @@ describe('prompts', () => {
   it('renders a prompt with its argument substituted', async () => {
     const { client, close } = await connect();
     const res = await client.getPrompt({ name: 'release-readiness', arguments: { app: 'com.example.app' } });
-    expect((res.messages[0].content as any).text).toContain('com.example.app');
+    expect((res.messages[0]!.content as any).text).toContain('com.example.app');
     await close();
   });
 
