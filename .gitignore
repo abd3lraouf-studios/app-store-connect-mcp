@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+
+# Regenerable from Apple's spec on demand (5MB): npm run build:types
+spec/apple-api.d.ts
+
+# Never commit key material.
+*.p8
+.env

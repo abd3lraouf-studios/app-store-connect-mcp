@@ -1,0 +1,50 @@
+Third-party material in this repository
+=======================================
+
+The Business Source License in LICENSE covers the source code authored for
+this project. It does not, and cannot, grant rights over the third-party
+material listed below, which is included for reproducibility and remains
+under its own terms.
+
+Apple material
+--------------
+
+  spec/apple-openapi.json     The App Store Connect API OpenAPI description,
+                              published by Apple Inc. and vendored so that the
+                              operation index is reproducible offline.
+
+  certs/AppleRootCA-G3.cer    Apple Root CA - G3, the trust anchor for App
+                              Store Server API signatures. Vendored so that
+                              signature verification cannot be disabled by a
+                              network failure.
+
+  spec/storekit-endpoints.json
+                              Derived from apple/app-store-server-library-node
+                              (Apple Inc., Apache-2.0) by parsing its endpoint
+                              set. See scripts/fetch-specs.mjs.
+
+These files are the property of Apple Inc. and are subject to Apple's terms,
+not to this project's licence. Both are re-downloadable from Apple with
+`npm run fetch:specs`; nothing in this repository is required to be
+redistributed for the software to build.
+
+Apple, App Store, App Store Connect, StoreKit and TestFlight are trademarks
+of Apple Inc. This project is not affiliated with, endorsed by, or sponsored
+by Apple Inc.
+
+Dependencies
+------------
+
+Runtime and development dependencies retain their own licences; see the
+`license` field of each package under node_modules, or run
+`npx license-checker --production`.
+
+Prior art
+---------
+
+No code was copied from other App Store Connect MCP servers. Several design
+ideas were arrived at independently or adapted from reading them — in
+particular erayendes/app-store-connect-mcp and
+TrialAndErrorAI/appstore-connect-mcp, both MIT-licensed. Ideas are not
+copyrightable and no attribution is owed, but credit is given in the README
+because it was useful work.
