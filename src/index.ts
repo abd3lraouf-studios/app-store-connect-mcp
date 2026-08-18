@@ -29,6 +29,31 @@ Other:
   --storekit-env Production|Sandbox
 `;
 
+/**
+ * Exit when the parent goes away.
+ *
+ * The stdio transport's lifetime is the parent's lifetime, but nothing in the
+ * SDK enforces that: if the client dies without closing cleanly, stdin hits EOF
+ * and an unwatched server keeps running, reparented to init. Watching EOF and
+ * the termination signals is what stops this turning into an orphan holding a
+ * signing key.
+ */
+function installShutdownHandlers(): void {
+  let closing = false;
+  const shutdown = (reason: string) => {
+    if (closing) return;
+    closing = true;
+    console.error(`app-store-connect-mcp: shutting down (${reason})`);
+    process.exit(0);
+  };
+
+  process.stdin.on('end', () => shutdown('stdin closed'));
+  process.stdin.on('close', () => shutdown('stdin closed'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGHUP', () => shutdown('SIGHUP'));
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     process.stdout.write(HELP);
@@ -40,6 +65,7 @@ async function main(): Promise<void> {
   if (config.transport === 'http') {
     await startHttp(config, () => createServer(config));
   } else {
+    installShutdownHandlers();
     await startStdio(createServer(config));
   }
 }

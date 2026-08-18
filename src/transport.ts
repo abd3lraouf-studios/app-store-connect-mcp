@@ -37,6 +37,40 @@ export async function startHttp(config: Config, makeServer: () => Server): Promi
   const app = express();
   app.use(express.json({ limit: '10mb' }));
 
+  // DNS-rebinding protection. A page in the user's browser can resolve its own
+  // domain to 127.0.0.1 and reach a loopback-bound server; the browser then
+  // treats it as same-origin and the bearer token is not a defence, because a
+  // rebound request comes from the user's own machine. Validating Host and
+  // Origin is what actually stops it, and the MCP spec requires it.
+  const allowedHosts = new Set([
+    `${config.host}:${config.port}`,
+    `localhost:${config.port}`,
+    `127.0.0.1:${config.port}`,
+    `[::1]:${config.port}`,
+  ]);
+  const allowedOrigins = new Set(
+    (process.env.ASC_ALLOWED_ORIGINS ?? '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean)
+  );
+
+  app.use('/mcp', (req, res, next) => {
+    const host = req.headers.host;
+    if (!host || !allowedHosts.has(host)) {
+      res.status(403).json({ error: 'Forbidden: unexpected Host header' });
+      return;
+    }
+    // A non-browser client sends no Origin at all; only reject one we were
+    // given and do not recognise.
+    const origin = req.headers.origin;
+    if (origin && !allowedOrigins.has(origin)) {
+      res.status(403).json({ error: 'Forbidden: origin not allowed' });
+      return;
+    }
+    next();
+  });
+
   // Constant-time-ish comparison; the token is short and compared per request.
   const expected = `Bearer ${config.httpToken}`;
   app.use('/mcp', (req, res, next) => {
@@ -84,6 +118,9 @@ export async function startHttp(config: Config, makeServer: () => Server): Promi
   app.delete('/mcp', bySession);
 
   // Unauthenticated on purpose: liveness only, no account information.
+  // Deliberately separate from /mcp — a POST there is a real protocol request
+  // and a naive probe would be rejected by the header rules.
+  app.get('/healthz', (_req, res) => res.json({ status: 'ok', sessions: sessions.size }));
   app.get('/health', (_req, res) => res.json({ status: 'ok', sessions: sessions.size }));
 
   await new Promise<void>((resolve) => {

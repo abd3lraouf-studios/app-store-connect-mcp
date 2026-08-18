@@ -1,0 +1,13 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`spec index > keeps the risk distribution stable 1`] = `
+{
+  "ACCESS": 12,
+  "DESTRUCTIVE": 132,
+  "INFRASTRUCTURE": 11,
+  "READ": 797,
+  "RELEASE": 12,
+  "REVENUE": 61,
+  "WRITE": 238,
+}
+`;

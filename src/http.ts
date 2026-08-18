@@ -7,6 +7,18 @@
  */
 import { TokenMinter, type Audience, decodeJwsPayload } from './jwt.js';
 import { decodeSignedFields } from './storekit.js';
+import { RateLimiter } from './ratelimit.js';
+import { shapeResponse } from './shape.js';
+
+/** Only these hosts may ever receive a bearer token. */
+const ALLOWED_HOSTS = new Set([
+  'api.appstoreconnect.apple.com',
+  'api.storekit.apple.com',
+  'api.storekit-sandbox.apple.com',
+]);
+
+const DEFAULT_TIMEOUT_MS = 60_000;
+const MAX_RETRIES = 3;
 
 export interface RequestSpec {
   baseUrl: string;
@@ -23,6 +35,8 @@ export interface ApiResult {
   status: number;
   ok: boolean;
   data: unknown;
+  /** Apple's request id — quote this when contacting Apple support. */
+  requestId?: string;
   /** Present when the caller asked to follow pagination. */
   pages?: number;
 }
@@ -31,10 +45,44 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly detail: unknown,
-    message: string
+    message: string,
+    readonly requestId?: string,
+    /** True when we cannot tell whether Apple applied the change. */
+    readonly ambiguous = false
   ) {
     super(message);
     this.name = 'ApiError';
+  }
+}
+
+/**
+ * Reject any URL that is not one of Apple's own API hosts.
+ *
+ * This guards the pagination cursor in particular: `links.next` is a
+ * server-supplied absolute URL, and following one blindly would walk a live
+ * bearer token to whatever host it names. An allowlist of three exact hostnames
+ * avoids hand-rolled IP parsing, which the MCP security guidance warns against
+ * because octal, hex and IPv4-mapped-IPv6 forms defeat naive validators.
+ *
+ * `ASC_BASE_URL` widens the allowlist to its own host so tests can point the
+ * client at a local fixture server without disabling the check.
+ */
+export function assertAllowedUrl(url: URL): void {
+  const override = process.env.ASC_BASE_URL;
+  if (override) {
+    try {
+      if (url.host === new URL(override).host) return;
+    } catch {
+      /* A malformed override must not widen the allowlist. */
+    }
+  }
+  if (url.protocol !== 'https:') {
+    throw new Error(`Refusing a non-HTTPS request to ${url.host}.`);
+  }
+  if (!ALLOWED_HOSTS.has(url.hostname)) {
+    throw new Error(
+      `Refusing to send credentials to ${url.hostname}. Only Apple's API hosts are permitted.`
+    );
   }
 }
 
@@ -45,9 +93,8 @@ function buildQuery(query: Record<string, unknown> | undefined): string {
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null) continue;
     if (Array.isArray(value)) {
-      // ASC expects comma-joined values for filter/fields params, but the
-      // Server API expects the key repeated. Repeating works for both because
-      // ASC also accepts repeats; comma-joining does not work for StoreKit.
+      // The Server API requires the key repeated; ASC accepts repeats as well
+      // as comma-joining, so repeating is the form that works for both.
       for (const v of value) params.append(key, String(v));
     } else {
       params.append(key, String(value));
@@ -79,56 +126,125 @@ function describeError(status: number, data: unknown): string {
   return `HTTP ${status}`;
 }
 
+const RETRYABLE_FOR_READS = new Set([408, 429, 500, 502, 503, 504]);
+
 export class ApiClient {
-  constructor(private readonly minter: TokenMinter) {}
+  readonly limiter: RateLimiter;
 
-  async request(spec: RequestSpec, retryOn401 = true): Promise<ApiResult> {
-    const url = `${spec.baseUrl}${spec.path}${buildQuery(spec.query)}`;
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.minter.mint(spec.audience)}`,
-      Accept: 'application/json',
-    };
+  constructor(
+    private readonly minter: TokenMinter,
+    private readonly options: { timeoutMs?: number; shape?: boolean } = {},
+    limiter?: RateLimiter
+  ) {
+    this.limiter = limiter ?? new RateLimiter();
+  }
 
-    let payload: string | Buffer | undefined;
-    if (spec.body !== undefined && spec.body !== null) {
-      if (spec.contentType && spec.contentType !== 'application/json') {
-        headers['Content-Type'] = spec.contentType;
-        payload = Buffer.from(String(spec.body), 'base64');
-      } else {
-        headers['Content-Type'] = 'application/json';
-        payload = JSON.stringify(spec.body);
+  async request(spec: RequestSpec): Promise<ApiResult> {
+    const url = new URL(`${spec.baseUrl}${spec.path}${buildQuery(spec.query)}`);
+    assertAllowedUrl(url);
+
+    const isWrite = spec.method !== 'GET';
+    let refreshedToken = false;
+    let attempt = 0;
+
+    for (;;) {
+      attempt += 1;
+      await this.limiter.acquire();
+
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${this.minter.mint(spec.audience)}`,
+        Accept: 'application/json',
+      };
+
+      let payload: string | Buffer | undefined;
+      if (spec.body !== undefined && spec.body !== null) {
+        if (spec.contentType && spec.contentType !== 'application/json') {
+          headers['Content-Type'] = spec.contentType;
+          payload = Buffer.from(String(spec.body), 'base64');
+        } else {
+          headers['Content-Type'] = 'application/json';
+          payload = JSON.stringify(spec.body);
+        }
       }
-    }
 
-    const res = await fetch(url, { method: spec.method, headers, body: payload });
-
-    const text = await res.text();
-    let data: unknown = text;
-    if (text) {
+      let res: Response;
       try {
-        data = JSON.parse(text);
-      } catch {
-        /* Some endpoints return an empty or non-JSON body; keep the raw text. */
+        res = await fetch(url, {
+          method: spec.method,
+          headers,
+          body: payload,
+          signal: AbortSignal.timeout(this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+        });
+      } catch (error) {
+        const timedOut = error instanceof Error && error.name === 'TimeoutError';
+        // A write that times out may still have been applied. Never resend it:
+        // a duplicated POST is worse than a reported failure.
+        if (isWrite) {
+          throw new ApiError(
+            0,
+            { cause: String(error) },
+            timedOut
+              ? `Request timed out after ${this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms. ` +
+                  'Apple may or may not have applied this change — check before retrying.'
+              : `Network error: ${String(error)}`,
+            undefined,
+            true
+          );
+        }
+        if (attempt <= MAX_RETRIES) {
+          await this.backoff(attempt);
+          continue;
+        }
+        throw new ApiError(0, { cause: String(error) }, `Network error after ${attempt} attempts: ${String(error)}`);
       }
-    }
 
-    // A cached token can outlive a key rotation. Retry once with a fresh one
-    // before reporting an auth failure the caller cannot act on.
-    if (res.status === 401 && retryOn401) {
-      this.minter.invalidate();
-      return this.request(spec, false);
-    }
+      this.limiter.observeHeader(res.headers.get('x-rate-limit'));
+      const requestId = res.headers.get('x-request-id') ?? undefined;
 
-    if (!res.ok) {
-      throw new ApiError(res.status, data, describeError(res.status, data));
-    }
+      const text = await res.text();
+      let data: unknown = text;
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          /* Some endpoints return an empty or non-JSON body; keep the raw text. */
+        }
+      }
 
-    // StoreKit payloads are mostly JWS; decode them so the result is usable.
-    if (spec.audience === 'storekit') {
-      data = decodeSignedFields(data, decodeJwsPayload);
-    }
+      // A cached token can outlive a key rotation. Refresh once before
+      // reporting an auth failure the caller cannot act on.
+      if (res.status === 401 && !refreshedToken) {
+        refreshedToken = true;
+        this.minter.invalidate();
+        continue;
+      }
 
-    return { status: res.status, ok: true, data };
+      if (!res.ok) {
+        // Writes retry only on 429: Apple rejected the request before
+        // processing it, so resending cannot duplicate an effect. Every other
+        // failure mode is ambiguous for a write.
+        const retryable = isWrite ? res.status === 429 : RETRYABLE_FOR_READS.has(res.status);
+        if (retryable && attempt <= MAX_RETRIES) {
+          await this.backoff(attempt, res.headers.get('retry-after'));
+          continue;
+        }
+        throw new ApiError(res.status, data, describeError(res.status, data), requestId);
+      }
+
+      if (spec.audience === 'storekit') {
+        data = decodeSignedFields(data, decodeJwsPayload);
+      } else {
+        data = shapeResponse(data, this.options.shape !== false);
+      }
+
+      return { status: res.status, ok: true, data, requestId };
+    }
+  }
+
+  private async backoff(attempt: number, retryAfter?: string | null): Promise<void> {
+    const headerMs = retryAfter ? Number(retryAfter) * 1000 : NaN;
+    const ms = Number.isFinite(headerMs) && headerMs > 0 ? headerMs : Math.min(8000, 2 ** attempt * 250);
+    await new Promise((r) => setTimeout(r, ms));
   }
 
   /**
@@ -136,8 +252,8 @@ export class ApiClient {
    *
    * The two APIs paginate differently — Connect exposes an absolute
    * `links.next` URL, the Server API returns an opaque `revision` /
-   * `paginationToken` that must be fed back as a query parameter — so both are
-   * handled explicitly rather than guessed at.
+   * `paginationToken` fed back as a query parameter — so both are handled
+   * explicitly rather than guessed at.
    */
   async requestAll(spec: RequestSpec, maxPages: number): Promise<ApiResult> {
     const collected: unknown[] = [];
@@ -155,15 +271,14 @@ export class ApiClient {
       else if (Array.isArray(d?.signedTransactions_decoded)) collected.push(...d.signedTransactions_decoded);
       else collected.push(d);
 
-      // Connect API: absolute next link.
       const next: string | undefined = d?.links?.next;
       if (next) {
         const u = new URL(next);
+        assertAllowedUrl(u); // A cursor is server-supplied input, not a trusted URL.
         current = { ...spec, path: u.pathname, query: Object.fromEntries(u.searchParams) };
         continue;
       }
 
-      // Server API: opaque cursor, only meaningful while hasMore is true.
       if (d?.hasMore && (d?.revision || d?.paginationToken)) {
         current = {
           ...spec,
@@ -183,6 +298,7 @@ export class ApiClient {
       status: last?.status ?? 200,
       ok: true,
       pages,
+      requestId: last?.requestId,
       data: { count: collected.length, pages, items: collected },
     };
   }
