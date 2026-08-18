@@ -81,9 +81,10 @@ export class TokenMinter {
  */
 export function decodeJwsPayload(jws: string): unknown {
   const parts = jws.split('.');
-  if (parts.length !== 3) return jws;
+  const claims = parts[1];
+  if (parts.length !== 3 || !claims) return jws;
   try {
-    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return JSON.parse(Buffer.from(claims, 'base64url').toString('utf8'));
   } catch {
     return jws;
   }

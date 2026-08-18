@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.19', '24']
+        os: [ubuntu-latest]
+        include:
+          # This is an Apple-ecosystem tool; macOS is where most users run it.
+          - { node: '24', os: macos-latest }
+          # Windows catches shebang, path separator and CRLF bugs in the CLI.
+          - { node: '24', os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+      # The committed index must be reproducible from the committed spec.
+      - name: Spec index is not stale
+        run: git diff --exit-code spec/index.json
+        shell: bash
+
+      # This is where .env and .p8 fixtures leak into a published package.
+      - name: Inspect the publishable file list
+        run: npm pack --dry-run
+
+  packaged:
+    # Catches a runtime dependency that is really a devDependency — invisible
+    # until someone installs the package for the first time.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm pack
+      - name: Install the tarball somewhere clean and run it
+        run: |
+          mkdir -p /tmp/clean && cd /tmp/clean && npm init -y >/dev/null
+          npm i "$GITHUB_WORKSPACE"/*.tgz
+          ./node_modules/.bin/asc-mcp --help | grep -q 'keychain:<service>'
+
+  inspector:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: MCP Inspector smoke test
+        # --stored-auth-only keeps a non-TTY run from hanging on an OAuth
+        # prompt. A tool returning isError exits 5, so failures are caught.
+        run: |
+          npx -y @modelcontextprotocol/inspector --cli node dist/index.js \
+            --method tools/list --format json --stored-auth-only > tools.json
+          node -e "const t=require('./tools.json');if(!t.tools?.length)throw new Error('no tools listed');console.log(t.tools.length+' tools')"
+        env:
+          ASC_KEY: ${{ '-----BEGIN PRIVATE KEY-----' }}
+          ASC_ISSUER_ID: ci
+          ASC_KEY_ID: ci

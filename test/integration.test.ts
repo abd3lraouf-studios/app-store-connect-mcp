@@ -25,7 +25,7 @@ afterEach(() => mock.resetHandlers());
 afterAll(() => mock.close());
 
 const baseConfig: Config = {
-  keyRef: privateKey as unknown as string,
+  keyRef: privateKey,
   issuerId: 'issuer-uuid',
   keyId: 'ABC123KEYD',
   bundleId: 'com.example.app',

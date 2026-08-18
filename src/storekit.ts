@@ -398,7 +398,7 @@ export function decodeSignedFields(value: unknown, decode: (jws: string) => unkn
       v.every((x) => typeof x === 'string')
     ) {
       out[key] = v;
-      out[`${key}_decoded`] = (v as string[]).map(decode);
+      out[`${key}_decoded`] = (v).map(decode);
     } else {
       out[key] = decodeSignedFields(v, decode);
     }

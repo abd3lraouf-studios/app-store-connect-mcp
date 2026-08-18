@@ -7,7 +7,7 @@
  * fetch is undici, which bypasses node:http entirely. nock would silently
  * intercept nothing.
  */
-import { describe, it, expect, beforeAll, afterEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import { generateKeyPairSync } from 'node:crypto';
@@ -32,7 +32,7 @@ const noPacing = () => new RateLimiter(1e9, 1e9, Date.now, async () => {});
 
 function client(timeoutMs = 5000) {
   const minter = new TokenMinter(
-    { privateKey: privateKey as unknown as string, issuerId: 'i', keyId: 'k', source: 'test' },
+    { privateKey: privateKey, issuerId: 'i', keyId: 'k', source: 'test' },
     'com.example.app'
   );
   return new ApiClient(minter, { timeoutMs }, noPacing());
@@ -94,6 +94,28 @@ describe('query encoding', () => {
     expect(seen).toContain('status=ACTIVE');
     expect(seen).toContain('status=EXPIRED');
     expect(seen).not.toContain('ACTIVE%2CEXPIRED');
+  });
+
+  // "[object Object]" reaching Apple produces a 400 far from the mistake.
+  it('refuses an object as a query value rather than stringifying it to junk', async () => {
+    await expect(client().request(get({ query: { filter: { nested: true } } }))).rejects.toThrow(
+      /Query parameter "filter" must be a string, number or boolean/
+    );
+  });
+
+  it('refuses an object as a path parameter', () => {
+    expect(() => renderPath('/v1/apps/{id}', { id: { a: 1 } })).toThrow(/Path parameter "id" must be/);
+  });
+
+  it('accepts numbers and booleans', async () => {
+    let seen = '';
+    server.use(http.get(`${BASE}/v1/apps`, ({ request }) => {
+      seen = new URL(request.url).search;
+      return HttpResponse.json({ data: [] });
+    }));
+    await client().request(get({ query: { limit: 5, revoked: false } }));
+    expect(seen).toContain('limit=5');
+    expect(seen).toContain('revoked=false');
   });
 
   it('omits null and undefined', async () => {

@@ -13,9 +13,10 @@ function harness(perHour: number, perMinute: number) {
     perHour,
     perMinute,
     () => now,
-    async (ms) => {
+    (ms) => {
       sleeps.push(ms);
       now += ms;
+      return Promise.resolve();
     }
   );
   return { limiter, sleeps, advance: (ms: number) => (now += ms), nowRef: () => now };

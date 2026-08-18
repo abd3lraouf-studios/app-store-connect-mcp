@@ -1,0 +1,47 @@
+name: Spec watch
+
+# Apple ships App Store Connect API versions without announcing them. This
+# opens a branch when the spec moves; it never publishes anything.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: npm run fetch:specs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm run build && npm test
+
+      - name: Summarise any drift
+        run: |
+          if git diff --quiet spec/; then
+            echo "No change to either API description." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "## Apple changed something"
+            echo
+            echo "A changed operation **count** is routine. A **rename** is not —"
+            echo "anyone whose config names a renamed operation loses it."
+            echo
+            echo '```'
+            git diff --stat spec/
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          git config user.name  "spec-watch"
+          git config user.email "spec-watch@users.noreply.github.com"
+          git checkout -B spec/apple-update
+          git add spec/
+          git commit -m "Refresh Apple API descriptions"
+          git push -f origin spec/apple-update

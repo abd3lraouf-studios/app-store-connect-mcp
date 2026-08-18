@@ -86,6 +86,21 @@ export function assertAllowedUrl(url: URL): void {
   }
 }
 
+/**
+ * Coerce a query or path value, refusing anything that would stringify to
+ * "[object Object]". Silently sending that to Apple produces a confusing 400
+ * far from the mistake that caused it.
+ */
+function scalar(value: unknown, context: string): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  throw new Error(
+    `${context} must be a string, number or boolean; received ${Array.isArray(value) ? 'an array' : typeof value}.`
+  );
+}
+
 /** Apple accepts repeated keys for array-valued filters; URLSearchParams handles that. */
 function buildQuery(query: Record<string, unknown> | undefined): string {
   if (!query) return '';
@@ -95,9 +110,9 @@ function buildQuery(query: Record<string, unknown> | undefined): string {
     if (Array.isArray(value)) {
       // The Server API requires the key repeated; ASC accepts repeats as well
       // as comma-joining, so repeating is the form that works for both.
-      for (const v of value) params.append(key, String(v));
+      for (const v of value) params.append(key, scalar(v, `Query parameter "${key}"`));
     } else {
-      params.append(key, String(value));
+      params.append(key, scalar(value, `Query parameter "${key}"`));
     }
   }
   const s = params.toString();
@@ -159,8 +174,11 @@ export class ApiClient {
       let payload: string | Buffer | undefined;
       if (spec.body !== undefined && spec.body !== null) {
         if (spec.contentType && spec.contentType !== 'application/json') {
+          if (typeof spec.body !== 'string') {
+            throw new Error(`A ${spec.contentType} body must be a base64-encoded string.`);
+          }
           headers['Content-Type'] = spec.contentType;
-          payload = Buffer.from(String(spec.body), 'base64');
+          payload = Buffer.from(spec.body, 'base64');
         } else {
           headers['Content-Type'] = 'application/json';
           payload = JSON.stringify(spec.body);
@@ -313,7 +331,7 @@ export function renderPath(template: string, params: Record<string, unknown> = {
       missing.push(name);
       return `{${name}}`;
     }
-    return encodeURIComponent(String(v));
+    return encodeURIComponent(scalar(v, `Path parameter "${name}"`));
   });
   if (missing.length) {
     throw new Error(`Missing required path parameter(s): ${missing.join(', ')} for ${template}`);

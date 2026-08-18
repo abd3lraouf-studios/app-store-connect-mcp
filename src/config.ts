@@ -20,7 +20,8 @@ export interface Config {
 
 function flag(argv: string[], name: string): string | undefined {
   const exact = argv.indexOf(`--${name}`);
-  if (exact !== -1 && argv[exact + 1] && !argv[exact + 1].startsWith('--')) return argv[exact + 1];
+  const following = exact === -1 ? undefined : argv[exact + 1];
+  if (following && !following.startsWith('--')) return following;
   const inline = argv.find((a) => a.startsWith(`--${name}=`));
   return inline?.slice(name.length + 3);
 }

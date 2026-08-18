@@ -15,7 +15,7 @@ const { privateKey } = generateKeyPairSync('ec', {
 });
 
 const creds: Credentials = {
-  privateKey: privateKey as unknown as string,
+  privateKey: privateKey,
   issuerId: 'issuer-uuid',
   keyId: 'ABC123KEYD',
   source: 'test',

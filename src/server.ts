@@ -82,7 +82,7 @@ export function createServer(config: Config): Server {
     };
   }
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: [
       {
         name: 'asc_status',
