@@ -8,3 +8,4 @@ spec/apple-api.d.ts
 # Never commit key material.
 *.p8
 .env
+coverage/
