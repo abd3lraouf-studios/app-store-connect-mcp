@@ -2,6 +2,7 @@
 import { loadConfig } from './config.js';
 import { createServer } from './server.js';
 import { startHttp, startStdio } from './transport.js';
+import { activeCount, whenIdle } from './inflight.js';
 
 const HELP = `app-store-connect-mcp — App Store Connect + App Store Server (StoreKit 2) over MCP
 
@@ -30,28 +31,60 @@ Other:
 `;
 
 /**
- * Exit when the parent goes away.
+ * Exit when the parent goes away — but finish answering first.
  *
- * The stdio transport's lifetime is the parent's lifetime, but nothing in the
+ * The stdio transport's lifetime is the parent's lifetime, and nothing in the
  * SDK enforces that: if the client dies without closing cleanly, stdin hits EOF
- * and an unwatched server keeps running, reparented to init. Watching EOF and
- * the termination signals is what stops this turning into an orphan holding a
- * signing key.
+ * and an unwatched server keeps running, reparented to init, holding a signing
+ * key.
+ *
+ * EOF is not the same as "stop working", though. It means no *further*
+ * requests are coming; anything already running still deserves its reply.
+ * Exiting the moment stdin closes drops the response to a slow call — and any
+ * piped or batched input triggers exactly that, because the pipe drains long
+ * before the work does. So EOF drains, while a signal is a real instruction to
+ * stop and gets a much shorter grace period.
  */
+const DRAIN_MS = 120_000;
+const SIGNAL_GRACE_MS = 2_000;
+
+/**
+ * process.exit() abandons buffered stdout writes. On a pipe that is exactly
+ * where the last response sits, so the reply we just spent the drain waiting
+ * for would be discarded at the final step.
+ */
+function flushStdout(): Promise<void> {
+  return new Promise((resolve) => {
+    if (!process.stdout.writableLength) {
+      setImmediate(resolve);
+      return;
+    }
+    process.stdout.write('', () => setImmediate(resolve));
+  });
+}
+
 function installShutdownHandlers(): void {
   let closing = false;
-  const shutdown = (reason: string) => {
+  const shutdown = (reason: string, graceMs: number) => {
     if (closing) return;
     closing = true;
-    console.error(`app-store-connect-mcp: shutting down (${reason})`);
-    process.exit(0);
+    const pending = activeCount();
+    if (pending) {
+      console.error(`app-store-connect-mcp: ${reason}; finishing ${pending} in-flight request(s)`);
+    }
+    void whenIdle(graceMs)
+      .then(flushStdout)
+      .then(() => {
+        console.error(`app-store-connect-mcp: shutting down (${reason})`);
+        process.exit(0);
+      });
   };
 
-  process.stdin.on('end', () => shutdown('stdin closed'));
-  process.stdin.on('close', () => shutdown('stdin closed'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGHUP', () => shutdown('SIGHUP'));
+  process.stdin.on('end', () => shutdown('stdin closed', DRAIN_MS));
+  process.stdin.on('close', () => shutdown('stdin closed', DRAIN_MS));
+  process.on('SIGTERM', () => shutdown('SIGTERM', SIGNAL_GRACE_MS));
+  process.on('SIGINT', () => shutdown('SIGINT', SIGNAL_GRACE_MS));
+  process.on('SIGHUP', () => shutdown('SIGHUP', SIGNAL_GRACE_MS));
 }
 
 async function main(): Promise<void> {

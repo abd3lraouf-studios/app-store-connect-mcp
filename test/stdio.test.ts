@@ -75,7 +75,7 @@ describe('stdio transport', () => {
     const { stdout } = await run([INIT, READY, LIST]);
     const messages = stdout.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
     expect(messages.find((m) => m.id === 1)?.result.serverInfo.name).toBe('app-store-connect-mcp');
-    expect(messages.find((m) => m.id === 2)?.result.tools.length).toBe(5);
+    expect(messages.find((m) => m.id === 2)?.result.tools.length).toBe(11);
   });
 
   it('logs its banner to stderr, never stdout', async () => {
@@ -87,6 +87,27 @@ describe('stdio transport', () => {
   it('exits when stdin closes rather than lingering', async () => {
     const { code } = await run([INIT, READY, LIST]);
     expect(code).toBe(0);
+  });
+
+  // Regression: stdin EOF used to kill the server mid-request. Piped input
+  // drains immediately, so a call doing real work lost its reply — which every
+  // fast test missed. describeOperation parses the 3MB spec, so it is slow
+  // enough to be running when EOF lands.
+  it('still answers a slow request after stdin closes', async () => {
+    const DESCRIBE = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: { name: 'asc_describe_endpoint', arguments: { operationId: 'appPriceSchedules_createInstance' } },
+    });
+    const { stdout } = await run([INIT, READY, DESCRIBE]);
+    const messages = stdout.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+    const reply = messages.find((m) => m.id === 3);
+    expect(reply).toBeDefined();
+    expect(JSON.parse(reply.result.content[0].text).risk).toBe('REVENUE');
+    // Whether the drain actually engaged depends on which finishes first, so
+    // that is not asserted here — the drain logic itself is covered
+    // deterministically in inflight.test.ts. What matters is the reply arriving.
   });
 
   it('prints help and exits cleanly', () => {

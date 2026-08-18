@@ -1,9 +1,9 @@
 # app-store-connect-mcp
 
-An MCP server for **both** of Apple's commerce APIs — App Store Connect (1,263 operations) and the App Store Server API / StoreKit 2 (30 operations) — behind five tools, with the private key in the macOS Keychain and consequential writes gated behind an explicit confirmation.
+An MCP server for **both** of Apple's commerce APIs — App Store Connect (1,263 operations) and the App Store Server API / StoreKit 2 (30 operations) — behind eleven tools, with the private key in the macOS Keychain and consequential writes gated behind an explicit confirmation.
 
 ```
-1,293 operations · 5 tools · key never on disk · verified against the live APIs
+1,293 operations · 11 tools · key never on disk · verified against the live APIs
 ```
 
 ## Why it is built this way
@@ -89,6 +89,30 @@ npm install && npm run build
 | `asc_describe_endpoint` | Parameters, request-body schema with real field names, risk tier. |
 | `asc_call` | **Reads.** Path and query parameters, pagination, both APIs. |
 | `asc_write` | **Everything that changes data.** Confirmation, `dry_run`, both APIs. |
+
+### Composite tools
+
+Six more, for the chains the raw API cannot express in one call. A tool that
+merely saved a request was left out — it would need keeping in step with Apple
+forever and buy nothing `asc_call` does not already do.
+
+| Tool | What it collapses |
+|---|---|
+| `asc_pricing_get` | app → groups → subscriptions → prices → territories, in a handful of requests instead of ~175. The **currency lives on the territory**, not the price row, so reading prices by hand gives ambiguous numbers |
+| `asc_pricing_set` | The same chain plus the write. `preserve_current_price` is **required with no default** — Apple defaults it to false, which silently re-prices your existing subscribers |
+| `asc_preflight_version` | Six resources answering "can this ship?", returning GO/NO-GO with each gap naming its fixing operation |
+| `asc_listing_screenshots` | app → version → locales → sets → screenshots, via `included` rather than a request per locale |
+| `asc_upload_screenshot` | Apple's reserve → PUT-at-offsets → commit-with-MD5 sequence, across two hosts |
+| `asc_analytics_report` | request → report → instance → **every** segment → signed URL → gunzip → rows |
+
+Two are worth explaining. **Every analytics segment is read**: taking only the
+first returns a plausible subset with nothing marking it partial, which is the
+easiest way to get a confidently wrong number out of this API. And
+`asc_analytics_report` **never creates a report request** — `accessType:
+ONGOING` is a standing commitment on the account, not a query.
+
+Write macros clear the same gate as `asc_write`, through the same code, so a
+macro can never become a way around the confirmation.
 
 Reads and writes are separate tools because Claude Code ignores the standard
 `destructiveHint` annotation but honours `_meta["anthropic/requiresUserInteraction"]`

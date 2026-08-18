@@ -28,7 +28,7 @@ export function fitToBudget(value: unknown, maxChars = DEFAULT_MAX_CHARS): Trunc
 
   const container = value as Record<string, unknown> | null;
   const arrayKey = container
-    ? (['items', 'data', 'operations'] as const).find((k) => Array.isArray(container[k]))
+    ? (['items', 'data', 'rows', 'operations'] as const).find((k) => Array.isArray(container[k]))
     : undefined;
 
   if (container && arrayKey) {

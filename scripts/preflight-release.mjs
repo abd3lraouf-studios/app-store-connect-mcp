@@ -43,7 +43,12 @@ for (const [label, value] of [
 
 // 3. The advertised tool count must match the code. This is the drift that
 //    just slipped through: the README said "four tools" after a fifth existed.
-const toolNames = [...read('src/server.ts').matchAll(/^\s{8}name: '(asc_[a-z_]+)',$/gm)].map((m) => m[1]);
+// Tools come from two places: the core ones declared inline in the server,
+// and the composite ones contributed by the macro registry. Counting only the
+// first is how this check went stale the moment macros landed.
+const coreTools = [...read('src/server.ts').matchAll(/^\s{8}name: '(asc_[a-z_]+)',$/gm)].map((m) => m[1]);
+const macroTools = [...read('src/macros/index.ts').matchAll(/^\s{4}name: '(asc_[a-z_]+)',$/gm)].map((m) => m[1]);
+const toolNames = [...new Set([...coreTools, ...macroTools])];
 const words = { 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight' };
 if (!toolNames.length) {
   problems.push('Could not determine the tool count from src/server.ts — the pre-flight check needs updating.');
