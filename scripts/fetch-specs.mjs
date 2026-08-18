@@ -30,6 +30,7 @@ const SPEC_DIR = path.join(ROOT, 'spec');
 const ASC_SPEC_URL =
   'https://developer.apple.com/sample-code/app-store-connect/app-store-connect-openapi-specification.zip';
 const STOREKIT_REPO = 'apple/app-store-server-library-node';
+const APPLE_ROOT_CA_URL = 'https://www.apple.com/certificateauthority/AppleRootCA-G3.cer';
 
 const argRef = process.argv.indexOf('--storekit-ref');
 const STOREKIT_REF = argRef !== -1 ? process.argv[argRef + 1] : undefined;
@@ -137,8 +138,38 @@ function fetchStoreKitCatalogue() {
   return out;
 }
 
+/**
+ * The trust anchor for App Store Server API responses.
+ *
+ * Every StoreKit payload is a JWS whose x5c chain roots here. Without this
+ * certificate the signatures can only be decoded, not verified — which means
+ * trusting whatever the transport handed us. It is vendored rather than
+ * fetched at runtime so verification cannot be disabled by a network failure,
+ * and refreshed by this script so the provenance is auditable.
+ */
+function fetchAppleRootCertificate() {
+  console.log(`→ Apple Root CA - G3: ${APPLE_ROOT_CA_URL}`);
+  const dest = path.join(ROOT, 'certs', 'AppleRootCA-G3.cer');
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  execFileSync('curl', ['-sSL', '--fail', '-o', dest, APPLE_ROOT_CA_URL]);
+
+  const subject = execFileSync('openssl', ['x509', '-inform', 'DER', '-in', dest, '-noout', '-subject'], {
+    encoding: 'utf8',
+  }).trim();
+  if (!subject.includes('Apple Root CA - G3')) {
+    throw new Error(`Downloaded certificate is not Apple Root CA - G3: ${subject}`);
+  }
+  const notAfter = execFileSync('openssl', ['x509', '-inform', 'DER', '-in', dest, '-noout', '-enddate'], {
+    encoding: 'utf8',
+  }).trim();
+  console.log(`  ${subject.replace('subject=', '')}`);
+  console.log(`  ${notAfter}`);
+  return { subject, notAfter };
+}
+
 const ascVersion = fetchConnectSpec();
 const storekit = fetchStoreKitCatalogue();
+const rootCa = fetchAppleRootCertificate();
 
 fs.writeFileSync(
   path.join(SPEC_DIR, 'sources.json'),
@@ -147,6 +178,7 @@ fs.writeFileSync(
       fetchedAt: new Date().toISOString(),
       appStoreConnect: { url: ASC_SPEC_URL, apiVersion: ascVersion },
       appStoreServer: { source: storekit.source, note: 'Apple publishes no OpenAPI document for this API.' },
+      appleRootCertificate: { url: APPLE_ROOT_CA_URL, subject: rootCa.subject, notAfter: rootCa.notAfter },
     },
     null,
     2

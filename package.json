@@ -30,6 +30,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@apple/app-store-server-library": "^3.1.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2"

@@ -33,6 +33,7 @@ const baseConfig: Config = {
   transport: 'stdio',
   host: '127.0.0.1',
   port: 8787,
+  onlineChecks: false,
   redactPii: false,
   storekitEnvironment: 'Production',
 };

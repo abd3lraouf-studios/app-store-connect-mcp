@@ -369,39 +369,3 @@ export const STOREKIT_OPERATIONS: StoreKitOperation[] = [
 ];
 
 export const STOREKIT_BY_ID = new Map(STOREKIT_OPERATIONS.map((o) => [o.id, o]));
-
-/**
- * Recursively decode Apple's JWS-wrapped fields in a response.
- *
- * Every StoreKit payload of consequence arrives as a compact JWS in a field
- * named `signed*` (`signedTransactionInfo`, `signedRenewalInfo`,
- * `signedPayload`, `signedTransactions[]`, …). Returning those to a model as
- * opaque base64 makes the response useless, so they are decoded in place and
- * the original is preserved alongside.
- *
- * These are decoded, NOT verified — verifying the chain requires Apple's root
- * certificates. Everything decoded here is reported as unverified; do not
- * treat it as proof of purchase without checking the signature.
- */
-export function decodeSignedFields(value: unknown, decode: (jws: string) => unknown): unknown {
-  if (Array.isArray(value)) return value.map((v) => decodeSignedFields(v, decode));
-  if (value === null || typeof value !== 'object') return value;
-
-  const out: Record<string, unknown> = {};
-  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-    if (key.startsWith('signed') && typeof v === 'string' && v.split('.').length === 3) {
-      out[key] = v;
-      out[`${key}_decoded`] = decode(v);
-    } else if (
-      key.startsWith('signed') &&
-      Array.isArray(v) &&
-      v.every((x) => typeof x === 'string')
-    ) {
-      out[key] = v;
-      out[`${key}_decoded`] = (v).map(decode);
-    } else {
-      out[key] = decodeSignedFields(v, decode);
-    }
-  }
-  return out;
-}

@@ -44,6 +44,7 @@ import { PROMPTS, renderPrompt } from './prompts.js';
 import { MACROS, MACRO_BY_NAME, runMacro, type MacroContext } from './macros/index.js';
 import { begin, end } from './inflight.js';
 import { findUntrusted, untrustedNotice, redactPii } from './untrusted.js';
+import { JwsVerifier } from './jws.js';
 
 const MAX_PAGES_CAP = 50;
 
@@ -67,7 +68,13 @@ export function createServer(config: Config): Server {
     keyId: config.keyId,
   });
   const minter = new TokenMinter(creds, config.bundleId);
-  const client = new ApiClient(minter);
+  const verifier = new JwsVerifier({
+    environment: config.storekitEnvironment,
+    bundleId: config.bundleId,
+    appAppleId: config.appAppleId,
+    onlineChecks: config.onlineChecks,
+  });
+  const client = new ApiClient(minter, { verifier });
   const gate = new SafetyGate(config.safety);
   const index = loadIndex();
   const store = new ResponseStore();
@@ -404,6 +411,9 @@ export function createServer(config: Config): Server {
             storeKitApi: {
               operations: STOREKIT_OPERATIONS.length,
               host: STOREKIT_HOSTS[config.storekitEnvironment],
+              signatureVerification: verifier.available
+                ? `enabled against Apple Root CA - G3${config.onlineChecks ? ' with OCSP revocation checks' : ' (OCSP checks disabled)'}`
+                : `DISABLED — ${verifier.unavailable}`,
             },
             sampleApp: apps[0]?.attributes ?? null,
           });

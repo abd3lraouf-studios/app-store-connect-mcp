@@ -13,7 +13,12 @@ Credentials (one of, in order of preference):
   ASC_PRIVATE_KEY=<pem>                    Inline. Visible via 'ps -E'; avoid.
 
   ASC_ISSUER_ID, ASC_KEY_ID                Required unless the Keychain envelope has them.
-  ASC_BUNDLE_ID                            Required for App Store Server API calls.
+  ASC_BUNDLE_ID                            Required for App Store Server API calls,
+                                           and to verify Apple's signatures.
+  ASC_APP_APPLE_ID                         Numeric Apple ID. Apple requires it to
+                                           verify Production signatures; without it,
+                                           a payload signed for a different app
+                                           would pass.
 
 Safety:
   --read-only     Block every mutating operation.
@@ -30,6 +35,9 @@ Other:
   --storekit-env Production|Sandbox
   --redact-pii    Mask tester names and email local-parts, keeping the domain
                   (ASC_REDACT_PII=1).
+  --no-online-checks
+                  Skip OCSP revocation checks when verifying Apple's signatures.
+                  Faster and works offline; accepts a revoked certificate.
 `;
 
 /**

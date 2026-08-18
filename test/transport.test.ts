@@ -28,6 +28,7 @@ const config: Config = {
   host: '127.0.0.1',
   port: PORT,
   httpToken: TOKEN,
+  onlineChecks: false,
   redactPii: false,
   storekitEnvironment: 'Production',
 };

@@ -5,8 +5,8 @@
  * a base URL, a token audience, and how errors and pagination are shaped — all
  * parameterised here rather than duplicated into two clients.
  */
-import { TokenMinter, type Audience, decodeJwsPayload } from './jwt.js';
-import { decodeSignedFields } from './storekit.js';
+import { TokenMinter, type Audience } from './jwt.js';
+import { verifySignedFields, type JwsVerifier } from './jws.js';
 import { RateLimiter } from './ratelimit.js';
 import { shapeResponse } from './shape.js';
 
@@ -148,7 +148,7 @@ export class ApiClient {
 
   constructor(
     private readonly minter: TokenMinter,
-    private readonly options: { timeoutMs?: number; shape?: boolean } = {},
+    private readonly options: { timeoutMs?: number; shape?: boolean; verifier?: JwsVerifier } = {},
     limiter?: RateLimiter
   ) {
     this.limiter = limiter ?? new RateLimiter();
@@ -250,7 +250,8 @@ export class ApiClient {
       }
 
       if (spec.audience === 'storekit') {
-        data = decodeSignedFields(data, decodeJwsPayload);
+        // Verified where possible; every field reports which it got.
+        if (this.options.verifier) data = await verifySignedFields(data, this.options.verifier);
       } else {
         data = shapeResponse(data, this.options.shape !== false);
       }
