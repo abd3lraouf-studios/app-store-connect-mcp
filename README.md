@@ -5,8 +5,9 @@ An MCP server covering the App Store Connect API *and* the App Store Server API
 (StoreKit 2) — 1,293 operations behind 11 tools, for Claude Code, Claude Desktop,
 Cursor and anything else that speaks [Model Context Protocol](https://modelcontextprotocol.io).
 
+[![npm](https://img.shields.io/npm/v/@abd3lraouf/app-store-connect-mcp?logo=npm&color=cb3837)](https://www.npmjs.com/package/@abd3lraouf/app-store-connect-mcp)
 [![CI](https://github.com/abd3lraouf-studios/app-store-connect-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/abd3lraouf-studios/app-store-connect-mcp/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-289%20passing-brightgreen?logo=vitest&logoColor=white)](#receipts)
+[![Tests](https://img.shields.io/badge/tests-300%20passing-brightgreen?logo=vitest&logoColor=white)](#receipts)
 [![Coverage](https://img.shields.io/badge/line%20coverage-93%25-brightgreen)](#receipts)
 [![Licence](https://img.shields.io/badge/licence-BUSL--1.1-orange)](LICENSE)
 
@@ -15,6 +16,7 @@ Cursor and anything else that speaks [Model Context Protocol](https://modelconte
 [![MCP](https://img.shields.io/badge/protocol-MCP%202025--11--25-8a3ffc?logo=anthropic&logoColor=white)](#receipts)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522.19-339933?logo=nodedotjs&logoColor=white)](package.json)
 [![Platform](https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey?logo=apple&logoColor=white)](#known-limits)
+[![Install size](https://img.shields.io/badge/tarball-276%20kB-lightgrey)](#install)
 
 ```
 1,293 operations · 11 tools · key never on disk · Apple signatures verified
@@ -120,6 +122,8 @@ deliver.
 ---
 
 ## Install
+
+**Claude Code, one line:**
 
 ```bash
 claude mcp add --scope user app-store-connect \
@@ -344,7 +348,7 @@ it is good, and it is a different trade to this one.
 Claims are cheap. These are checkable:
 
 ```
-289 tests · 93% line coverage · offline, no credentials, runs on every PR
+300 tests · 93% line coverage · offline, no credentials, runs on every PR
 ```
 
 - **Both directions of signature verification.** A verifier that rejected
@@ -365,7 +369,7 @@ Claims are cheap. These are checkable:
   no in-process harness can catch it.
 
 ```bash
-npm test              # 289 tests, offline
+npm test              # 300 tests, offline
 npm run verify        # 14 read-only checks against the live APIs
 npm run fetch:specs   # re-download both API descriptions from Apple
 ```
