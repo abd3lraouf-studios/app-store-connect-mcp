@@ -18,7 +18,15 @@ const problems = [];
 const pkg = JSON.parse(read('package.json'));
 
 // 1. The git tag, when there is one, must match package.json.
-const tag = (process.env.GITHUB_REF ?? '').replace('refs/tags/', '');
+//
+// `.replace('refs/tags/', '')` left a branch ref intact, so on this workflow's
+// own trigger — push to main, because the version is the trigger and there is
+// no tag to remember — it compared "refs/heads/main" against "v1.1.0" and
+// failed every release before anything was published. Only a real tag ref is a
+// tag; anything else means there is nothing to check yet, since the tag is
+// created after publishing.
+const ref = process.env.GITHUB_REF ?? '';
+const tag = ref.startsWith('refs/tags/') ? ref.slice('refs/tags/'.length) : '';
 if (tag && tag !== `v${pkg.version}`) {
   problems.push(`Tag ${tag} does not match package.json version ${pkg.version}.`);
 }
