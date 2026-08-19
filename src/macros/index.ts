@@ -8,13 +8,14 @@
  * it has to be kept in step with Apple forever and buys nothing `asc_call`
  * does not already do.
  *
- * Five cleared it. Everything else was left out.
+ * Eight cleared it. Everything else was left out.
  */
 import type { MacroContext } from './support.js';
 import type { Risk } from '../safety.js';
 import { pricingGet, planPriceChange } from './pricing.js';
+import { availabilitySet } from './availability.js';
 import { preflightVersion } from './preflight.js';
-import { uploadScreenshot, listingScreenshots } from './screenshot.js';
+import { uploadScreenshot, uploadIapScreenshot, listingScreenshots } from './screenshot.js';
 import { analyticsReport } from './analytics.js';
 
 export { type MacroContext } from './support.js';
@@ -127,6 +128,7 @@ export const MACROS: MacroDefinition[] = [
         screenshot_set_id: { type: 'string', description: 'From asc_listing_screenshots.' },
         file_path: { type: 'string', description: 'Absolute path to the image on this machine.' },
         file_name: { type: 'string', description: 'Name to store it under. Defaults to the file’s own name.' },
+        dry_run: { type: 'boolean', description: 'Report what would be sent, including the checksum, without sending it.' },
       },
       required: ['screenshot_set_id', 'file_path'],
     },
@@ -154,6 +156,66 @@ export const MACROS: MacroDefinition[] = [
       required: ['app'],
     },
     risk: 'READ',
+  },
+  {
+    name: 'asc_upload_iap_screenshot',
+    description:
+      'Upload the App Store review screenshot for an in-app purchase, performing Apple’s reserve → ' +
+      'upload → commit sequence. This is a different resource from a listing screenshot and is the ' +
+      'usual reason an in-app purchase stays in MISSING_METADATA when everything else about it is ' +
+      'complete — it is the one required field with no text to type. Apple rejects non-standard ' +
+      'aspect ratios: a window capture at 1706x1610 fails IMAGE_BAD_ASPECT_RATIO, while 2880x1800 ' +
+      'passes. Validation is asynchronous, so a rejected image commits cleanly and only then reports FAILED.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        iap: { type: 'string', description: 'Numeric in-app purchase id. asc_pricing_get lists them.' },
+        file_path: { type: 'string', description: 'Absolute path to the image on this machine.' },
+        file_name: { type: 'string', description: 'Name to store it under. Defaults to the file’s own name.' },
+        dry_run: { type: 'boolean', description: 'Report what would be sent, including the checksum, without sending it.' },
+      },
+      required: ['iap', 'file_path'],
+    },
+    risk: 'RELEASE',
+    summarise: (a) =>
+      `Upload ${String(a.file_path)} as the App Store review screenshot for in-app purchase ${String(a.iap)}.`,
+  },
+  {
+    name: 'asc_availability_set',
+    description:
+      'Turn an app’s App Store availability on or off, territory by territory. Apple offers no bulk ' +
+      'endpoint — appAvailabilities answers 403 "does not allow UPDATE" once the record exists — so ' +
+      'this is one PATCH per territory, up to 175 of them. Territories already in the target state are ' +
+      'skipped, a failure part-way does not abandon the rest, and every territory is re-read afterwards ' +
+      'and compared against the request, because a loop that finishes is not evidence that the store ' +
+      'matches what was asked for. Cannot set availableInNewTerritories: that is web-UI only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...APP_ARG,
+        state: {
+          type: 'string',
+          enum: ['on', 'off'],
+          description: 'on = downloadable, off = removed from sale.',
+        },
+        territories: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'ISO alpha-3 codes, e.g. ["USA","GBR"]. Omit for every territory the app has.',
+        },
+      },
+      required: ['app', 'state'],
+    },
+    risk: 'RELEASE',
+    summarise: (a) => {
+      const scope =
+        Array.isArray(a.territories) && a.territories.length
+          ? `${a.territories.length} territories (${a.territories.slice(0, 5).join(', ')}${a.territories.length > 5 ? ', …' : ''})`
+          : 'EVERY territory';
+      return a.state === 'off'
+        ? `Remove ${String(a.app)} from sale in ${scope}. It stops being downloadable, immediately.`
+        : `Put ${String(a.app)} on sale in ${scope}. It becomes downloadable to customers.`;
+    },
   },
 ];
 
@@ -195,6 +257,13 @@ export async function runMacro(
     // back as one. It is invoked directly once the gate has cleared.
     case 'asc_upload_screenshot':
       return { kind: 'result', value: await uploadScreenshot(ctx, args as any) };
+    case 'asc_upload_iap_screenshot':
+      return { kind: 'result', value: await uploadIapScreenshot(ctx, args as any) };
+
+    // 175 sequential PATCHes plus a verification pass: not one request, so it
+    // runs here, after the gate has cleared.
+    case 'asc_availability_set':
+      return { kind: 'result', value: await availabilitySet(ctx, args as any) };
 
     default:
       throw new Error(`Unknown macro: ${name}`);

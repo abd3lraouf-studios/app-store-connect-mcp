@@ -2,7 +2,7 @@
 
 **Give Claude your App Store Connect account without giving it the keys to your pricing.**
 An MCP server covering the App Store Connect API *and* the App Store Server API
-(StoreKit 2) — 1,293 operations behind 11 tools, for Claude Code, Claude Desktop,
+(StoreKit 2) — 1,293 operations behind 13 tools, for Claude Code, Claude Desktop,
 Cursor and anything else that speaks [Model Context Protocol](https://modelcontextprotocol.io).
 
 [![npm](https://img.shields.io/npm/v/@abd3lraouf/app-store-connect-mcp?logo=npm&color=cb3837)](https://www.npmjs.com/package/@abd3lraouf/app-store-connect-mcp)
@@ -19,12 +19,12 @@ Cursor and anything else that speaks [Model Context Protocol](https://modelconte
 [![Install size](https://img.shields.io/badge/tarball-276%20kB-lightgrey)](#install)
 
 ```
-1,293 operations · 11 tools · key never on disk · Apple signatures verified
+1,293 operations · 13 tools · key never on disk · Apple signatures verified
 ```
 
 ```mermaid
 flowchart LR
-    A["Claude<br/>Cursor · any MCP client"] -->|"search · call · write"| B["app-store-connect-mcp<br/>11 tools"]
+    A["Claude<br/>Cursor · any MCP client"] -->|"search · call · write"| B["app-store-connect-mcp<br/>13 tools"]
     B --> C{"risk tier"}
     C -->|"READ · 811 ops"| D["Apple<br/>App Store Connect API"]
     C -->|"WRITE · 482 ops"| E["ask a human first"]
@@ -186,7 +186,7 @@ security add-generic-password -s my-asc-key -a api -w "$(
 
 ---
 
-## The eleven tools
+## The thirteen tools
 
 **Five core**, covering everything:
 
@@ -198,17 +198,19 @@ security add-generic-password -s my-asc-key -a api -w "$(
 | `asc_call` | **Reads.** Path and query parameters, pagination, both APIs. |
 | `asc_write` | **Everything that changes data.** Confirmation, `dry_run`. |
 
-**Six composite**, for chains the raw API cannot express in a single call. A
+**Eight composite**, for chains the raw API cannot express in a single call. A
 tool that merely saved one request was left out — it would need keeping in step
 with Apple forever and buys nothing `asc_call` doesn't already do:
 
 | Tool | What it collapses |
 |---|---|
-| `asc_pricing_get` | ~175 lookups → a handful. The **currency lives on the territory**, not the price row, so reading prices by hand gives ambiguous numbers. |
+| `asc_pricing_get` | ~175 lookups → a handful, for subscriptions **and** one-time purchases. The **currency lives on the territory**, not the price row, so reading prices by hand gives ambiguous numbers. |
 | `asc_pricing_set` | The same chain plus the write, with the subscriber decision forced into the open. |
 | `asc_preflight_version` | Six resources → **GO / NO-GO**, each gap naming the operation that fixes it. |
 | `asc_listing_screenshots` | A request per locale → four, via `included`. |
 | `asc_upload_screenshot` | Apple's reserve → PUT-at-offsets → commit-with-MD5 sequence, across two hosts. |
+| `asc_upload_iap_screenshot` | The same sequence for an in-app purchase's review screenshot — the field that keeps an IAP in `MISSING_METADATA`. |
+| `asc_availability_set` | One PATCH per territory (up to 175; Apple has no bulk endpoint), then **re-reads every one** and reports what did not take. |
 | `asc_analytics_report` | Five hops → signed URL → gunzip → rows, with **every segment stitched**. |
 
 <details>

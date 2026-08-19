@@ -81,7 +81,7 @@ describe('stdio transport', () => {
     const { stdout } = await run([INIT, READY, LIST]);
     const messages = stdout.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
     expect(messages.find((m) => m.id === 1)?.result.serverInfo.name).toBe('app-store-connect-mcp');
-    expect(messages.find((m) => m.id === 2)?.result.tools.length).toBe(11);
+    expect(messages.find((m) => m.id === 2)?.result.tools.length).toBe(13);
   });
 
   it('logs its banner to stderr, never stdout', async () => {
@@ -139,7 +139,7 @@ describe('stdio transport', () => {
     await new Promise((r) => child.on('close', r));
 
     const messages = out.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
-    expect(messages.find((m) => m.id === 2)?.result.tools.length).toBe(11);
+    expect(messages.find((m) => m.id === 2)?.result.tools.length).toBe(13);
   });
 
   it('names the missing credential when a tool actually needs Apple', async () => {

@@ -62,6 +62,7 @@ describe('tools/list', () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       'asc_analytics_report',
+      'asc_availability_set',
       'asc_call',
       'asc_describe_endpoint',
       'asc_listing_screenshots',
@@ -70,6 +71,7 @@ describe('tools/list', () => {
       'asc_pricing_set',
       'asc_search_endpoints',
       'asc_status',
+      'asc_upload_iap_screenshot',
       'asc_upload_screenshot',
       'asc_write',
     ]);

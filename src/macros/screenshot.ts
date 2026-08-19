@@ -33,16 +33,64 @@ interface UploadOperation {
   requestHeaders?: Array<{ name: string; value: string }>;
 }
 
-export async function uploadScreenshot(
+/**
+ * What differs between one asset kind and the next.
+ *
+ * The reserve → upload → commit sequence is identical for every asset Apple
+ * accepts — listing screenshots, app previews, IAP and subscription review
+ * screenshots all use the same `uploadOperations` contract and the same
+ * `uploaded` + `sourceFileChecksum` commit. Only the resource names change, so
+ * they are the only thing parameterised. Adding a new asset kind is a
+ * descriptor, not another copy of the upload logic.
+ */
+interface AssetTarget {
+  /** Collection to POST the reservation to. */
+  createPath: string;
+  /** JSON:API `type` for both the reservation and the commit. */
+  jsonApiType: string;
+  /** Relationship naming the parent, and the parent's own JSON:API type. */
+  parentRelName: string;
+  parentRelType: string;
+  /** Named in the cleanup instructions when a reservation is left dangling. */
+  deleteOpId: string;
+  /** Used when the caller supplies neither a name nor a usable path. */
+  defaultFileName: string;
+  /** Read back a reserved asset, for the "still validating" hint. */
+  readOpId: string;
+}
+
+const LISTING_SCREENSHOT: AssetTarget = {
+  createPath: '/v1/appScreenshots',
+  jsonApiType: 'appScreenshots',
+  parentRelName: 'appScreenshotSet',
+  parentRelType: 'appScreenshotSets',
+  deleteOpId: 'appScreenshots_deleteInstance',
+  readOpId: 'appScreenshots_getInstance',
+  defaultFileName: 'screenshot.png',
+};
+
+const IAP_REVIEW_SCREENSHOT: AssetTarget = {
+  createPath: '/v1/inAppPurchaseAppStoreReviewScreenshots',
+  jsonApiType: 'inAppPurchaseAppStoreReviewScreenshots',
+  parentRelName: 'inAppPurchaseV2',
+  parentRelType: 'inAppPurchases',
+  deleteOpId: 'inAppPurchaseAppStoreReviewScreenshots_deleteInstance',
+  readOpId: 'inAppPurchaseAppStoreReviewScreenshots_getInstance',
+  defaultFileName: 'iap-review-screenshot.png',
+};
+
+async function uploadAsset(
   ctx: MacroContext,
-  args: { screenshot_set_id: string; file_path: string; file_name?: string; dry_run?: boolean }
+  target: AssetTarget,
+  parentId: string,
+  args: { file_path: string; file_name?: string; dry_run?: boolean }
 ): Promise<unknown> {
   if (!fs.existsSync(args.file_path)) {
     throw new Error(`No file at ${args.file_path}.`);
   }
 
   const bytes = fs.readFileSync(args.file_path);
-  const fileName = args.file_name ?? args.file_path.split('/').pop() ?? 'screenshot.png';
+  const fileName = args.file_name ?? args.file_path.split('/').pop() ?? target.defaultFileName;
   const fileSize = bytes.byteLength;
 
   // Apple validates this against the assembled bytes; a mismatch fails the
@@ -52,11 +100,11 @@ export async function uploadScreenshot(
   if (args.dry_run) {
     return {
       dryRun: true,
-      wouldUpload: { fileName, fileSize, md5: checksum, screenshotSetId: args.screenshot_set_id },
+      wouldUpload: { fileName, fileSize, md5: checksum, parentId, resource: target.createPath },
       sequence: [
-        'POST /v1/appScreenshots (reserve)',
+        `POST ${target.createPath} (reserve)`,
         'PUT each uploadOperation to Apple’s asset host',
-        'PATCH /v1/appScreenshots/{id} with uploaded=true and the checksum',
+        `PATCH ${target.createPath}/{id} with uploaded=true and the checksum`,
       ],
       note: 'Nothing was sent.',
     };
@@ -66,28 +114,28 @@ export async function uploadScreenshot(
   const reserved = await ctx.client.request({
     baseUrl: ctx.baseUrl,
     method: 'POST',
-    path: '/v1/appScreenshots',
+    path: target.createPath,
     audience: 'connect',
     body: {
       data: {
-        type: 'appScreenshots',
+        type: target.jsonApiType,
         attributes: { fileName, fileSize },
         relationships: {
-          appScreenshotSet: { data: { type: 'appScreenshotSets', id: args.screenshot_set_id } },
+          [target.parentRelName]: { data: { type: target.parentRelType, id: parentId } },
         },
       },
     },
   });
 
   const created = (reserved.data as any).data;
-  const screenshotId: string = created.id;
+  const assetId: string = created.id;
   const operations: UploadOperation[] = created.attributes?.uploadOperations ?? [];
 
   if (!operations.length) {
     throw new Error(
-      `Apple reserved screenshot ${screenshotId} but returned no uploadOperations, so there is ` +
+      `Apple reserved ${assetId} but returned no uploadOperations, so there is ` +
         'nowhere to send the bytes. The reservation exists and should be deleted: ' +
-        `asc_write appScreenshots_deleteInstance id=${screenshotId}.`
+        `asc_write ${target.deleteOpId} id=${assetId}.`
     );
   }
 
@@ -101,8 +149,8 @@ export async function uploadScreenshot(
       // These are pre-signed URLs on a different host. Sending our
       // Authorization header here would hand a live App Store Connect token
       // to whatever Apple happened to name.
-      const target = new URL(op.url);
-      if (target.hostname === APPLE_API_HOST) {
+      const url = new URL(op.url);
+      if (url.hostname === APPLE_API_HOST) {
         throw new Error('Refusing to replay an upload operation against the authenticated API host.');
       }
 
@@ -123,8 +171,8 @@ export async function uploadScreenshot(
   } catch (error) {
     throw new Error(
       `${error instanceof Error ? error.message : String(error)}\n\n` +
-        `Screenshot ${screenshotId} is reserved but incomplete and will sit in AWAITING_UPLOAD. ` +
-        `Remove it with asc_write appScreenshots_deleteInstance id=${screenshotId}, then retry.`
+        `Asset ${assetId} is reserved but incomplete and will sit in AWAITING_UPLOAD. ` +
+        `Remove it with asc_write ${target.deleteOpId} id=${assetId}, then retry.`
     );
   }
 
@@ -132,12 +180,12 @@ export async function uploadScreenshot(
   const committed = await ctx.client.request({
     baseUrl: ctx.baseUrl,
     method: 'PATCH',
-    path: `/v1/appScreenshots/${screenshotId}`,
+    path: `${target.createPath}/${assetId}`,
     audience: 'connect',
     body: {
       data: {
-        type: 'appScreenshots',
-        id: screenshotId,
+        type: target.jsonApiType,
+        id: assetId,
         attributes: { uploaded: true, sourceFileChecksum: checksum },
       },
     },
@@ -146,7 +194,7 @@ export async function uploadScreenshot(
   const state = (committed.data as any).data?.attributes?.assetDeliveryState;
 
   return {
-    screenshotId,
+    assetId,
     fileName,
     fileSize,
     md5: checksum,
@@ -157,9 +205,45 @@ export async function uploadScreenshot(
       state?.state === 'COMPLETE'
         ? 'Upload complete and accepted.'
         : `Apple is still validating (state: ${state?.state ?? 'unknown'}). Re-read with ` +
-          `asc_call appScreenshots_getInstance id=${screenshotId}. A FAILED state carries the reason in assetDeliveryState.errors — ` +
-          'usually the image dimensions not matching the set’s display type.',
+          `asc_call ${target.readOpId} id=${assetId}. A FAILED state carries the reason in ` +
+          'assetDeliveryState.errors — usually the image dimensions, and for review screenshots ' +
+          'usually IMAGE_BAD_ASPECT_RATIO.',
   };
+}
+
+export async function uploadScreenshot(
+  ctx: MacroContext,
+  args: { screenshot_set_id: string; file_path: string; file_name?: string; dry_run?: boolean }
+): Promise<unknown> {
+  const result = await uploadAsset(ctx, LISTING_SCREENSHOT, args.screenshot_set_id, args);
+  // `screenshotId` was this tool's field name before the upload became generic.
+  const { assetId, ...rest } = result as { assetId?: string };
+  return assetId ? { screenshotId: assetId, ...rest } : result;
+}
+
+/**
+ * The review screenshot Apple shows the reviewer for an in-app purchase.
+ *
+ * A different resource from a listing screenshot, and the reason an IAP sits in
+ * MISSING_METADATA when everything else about it is complete — it is the one
+ * required field with no text to fill in.
+ */
+export async function uploadIapScreenshot(
+  ctx: MacroContext,
+  args: { iap: string; file_path: string; file_name?: string; dry_run?: boolean }
+): Promise<unknown> {
+  const iapId = resolveIap(args.iap);
+  return uploadAsset(ctx, IAP_REVIEW_SCREENSHOT, iapId, args);
+}
+
+/** Only the numeric id addresses an in-app purchase; say so usefully. */
+function resolveIap(iap: string): string {
+  if (/^\d+$/.test(iap)) return iap;
+  throw new Error(
+    `"${iap}" is not a numeric in-app purchase id. Product IDs are not addressable directly — ` +
+      'find the id with asc_call apps_inAppPurchasesV2_getToManyRelated, or asc_pricing_get, ' +
+      'which lists every in-app purchase with its id and productId.'
+  );
 }
 
 /**

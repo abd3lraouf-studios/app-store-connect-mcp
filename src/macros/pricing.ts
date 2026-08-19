@@ -1,5 +1,5 @@
 /**
- * Subscription pricing.
+ * What an app charges — subscriptions and one-time purchases alike.
  *
  * Reading a price is a four-hop walk — app → subscriptionGroups →
  * subscriptions → prices — and the answer is spread across three resources:
@@ -13,26 +13,157 @@
  * Apple defaults it to false. That is a revenue decision no model should make
  * silently, so the parameter is required here even though Apple treats it as
  * optional — the caller has to state an intent before the call is built.
+ *
+ * Reading covers both product kinds because an app that sells only a
+ * non-consumable has pricing too. Answering "no subscriptions" for such an app
+ * reads as "no pricing", which is the absence-is-not-emptiness trap the
+ * cookbook is written to prevent.
  */
-import { get, getAll, indexIncluded, resolveApp, type MacroContext } from './support.js';
+import {
+  get,
+  getAll,
+  getAllWithIncluded,
+  indexIncluded,
+  resolveApp,
+  type MacroContext,
+} from './support.js';
 
 interface TerritoryPrice {
   territory: string;
   currency?: string;
   customerPrice?: string;
   proceeds?: string;
-  /** True when existing subscribers were left on their old price. */
+  /** Subscriptions: existing subscribers were left on their old price. */
   preserved?: boolean;
+  /** One-time purchases: set deliberately, rather than equalised by Apple. */
+  manual?: boolean;
   startDate?: string | null;
   priceId: string;
   pricePointId?: string;
 }
 
+/**
+ * Grouping by amount makes an outlier territory obvious, which a flat list of
+ * 175 rows does not.
+ */
+function groupByPrice(prices: TerritoryPrice[]): { price: string; count: number; territories: string[] }[] {
+  const byPrice = new Map<string, string[]>();
+  for (const p of prices) {
+    const key = `${p.customerPrice ?? '?'} ${p.currency ?? ''}`.trim();
+    byPrice.set(key, [...(byPrice.get(key) ?? []), p.territory]);
+  }
+  return [...byPrice.entries()]
+    .map(([price, territories]) => ({ price, count: territories.length, territories }))
+    .sort((a, b) => b.count - a.count);
+}
+
+/** Does this product match what the caller asked for, by id, product ID or name? */
+function matchesProduct(filter: string | undefined, row: any): boolean {
+  if (!filter) return true;
+  return filter === row.id || filter === row.attributes?.productId || filter === row.attributes?.name;
+}
+
+/**
+ * One leg of an in-app purchase's price schedule.
+ *
+ * `manualPrices` is what was set deliberately (the base territory); everything
+ * else is `automaticPrices`, equalised by Apple from it. Both carry the amount
+ * on a sideloaded price point and the currency on a sideloaded territory, so
+ * they are read exactly the way subscription prices are.
+ */
+async function iapPriceRows(
+  ctx: MacroContext,
+  scheduleId: string,
+  relationship: 'manualPrices' | 'automaticPrices',
+  territory?: string
+): Promise<TerritoryPrice[]> {
+  const query: Record<string, unknown> = {
+    include: 'inAppPurchasePricePoint,territory',
+    'fields[inAppPurchasePrices]': 'startDate,endDate,manual,territory,inAppPurchasePricePoint',
+    'fields[inAppPurchasePricePoints]': 'customerPrice,proceeds',
+    'fields[territories]': 'currency',
+    limit: 200,
+  };
+  if (territory) query['filter[territory]'] = territory.toUpperCase();
+
+  const { data, included } = await getAllWithIncluded(
+    ctx,
+    `/v1/inAppPurchasePriceSchedules/${scheduleId}/${relationship}`,
+    query
+  );
+
+  return data.map((row: any) => {
+    const territoryId = row.relationships?.territory?.data?.id;
+    const pointId = row.relationships?.inAppPurchasePricePoint?.data?.id;
+    // `included` is keyed by the plural JSON:API type, not the singular
+    // relationship name that points at it.
+    const point = pointId ? included.get(`inAppPurchasePricePoints:${pointId}`) : undefined;
+    const terr = territoryId ? included.get(`territories:${territoryId}`) : undefined;
+    return {
+      territory: territoryId,
+      currency: terr?.attributes?.currency,
+      customerPrice: point?.attributes?.customerPrice,
+      proceeds: point?.attributes?.proceeds,
+      manual: row.attributes?.manual,
+      startDate: row.attributes?.startDate ?? null,
+      priceId: row.id,
+      pricePointId: pointId,
+    };
+  });
+}
+
+/** Every one-time purchase on the app, priced. */
+async function inAppPurchasePricing(
+  ctx: MacroContext,
+  appId: string,
+  args: { product?: string; territory?: string }
+): Promise<unknown[]> {
+  const iaps = await getAll(ctx, `/v1/apps/${appId}/inAppPurchasesV2`, {
+    'fields[inAppPurchases]': 'name,productId,inAppPurchaseType,state',
+    limit: 200,
+  });
+
+  const results: unknown[] = [];
+
+  for (const iap of iaps) {
+    if (!matchesProduct(args.product, iap)) continue;
+
+    const schedule = await get(ctx, `/v2/inAppPurchases/${iap.id}/iapPriceSchedule`, {
+      include: 'baseTerritory',
+    });
+    const scheduleId: string | undefined = schedule?.data?.id;
+    if (!scheduleId) continue;
+
+    const prices = [
+      ...(await iapPriceRows(ctx, scheduleId, 'manualPrices', args.territory)),
+      ...(await iapPriceRows(ctx, scheduleId, 'automaticPrices', args.territory)),
+    ];
+
+    results.push({
+      inAppPurchase: {
+        id: iap.id,
+        name: iap.attributes?.name,
+        productId: iap.attributes?.productId,
+        type: iap.attributes?.inAppPurchaseType,
+        state: iap.attributes?.state,
+      },
+      baseTerritory: schedule?.data?.relationships?.baseTerritory?.data?.id,
+      territoriesWithAPrice: prices.length,
+      groupedByPrice: groupByPrice(prices),
+      prices,
+    });
+  }
+
+  return results;
+}
+
 export async function pricingGet(
   ctx: MacroContext,
-  args: { app: string; subscription?: string; territory?: string }
+  args: { app: string; subscription?: string; product?: string; territory?: string }
 ): Promise<unknown> {
   const app = await resolveApp(ctx, args.app);
+  // One filter, either product kind. `subscription` is the older name for it.
+  const productFilter = args.product ?? args.subscription;
 
   const groups = await getAll(ctx, `/v1/apps/${app.id}/subscriptionGroups`, {
     'fields[subscriptionGroups]': 'referenceName',
@@ -48,14 +179,7 @@ export async function pricingGet(
     });
 
     for (const sub of subs) {
-      if (
-        args.subscription &&
-        args.subscription !== sub.id &&
-        args.subscription !== sub.attributes?.productId &&
-        args.subscription !== sub.attributes?.name
-      ) {
-        continue;
-      }
+      if (!matchesProduct(productFilter, sub)) continue;
 
       // One request instead of ~175: the price rows plus the two resources
       // needed to interpret them.
@@ -88,14 +212,6 @@ export async function pricingGet(
         };
       });
 
-      // Grouping by amount makes an outlier territory obvious, which a flat
-      // list of 175 rows does not.
-      const byPrice = new Map<string, string[]>();
-      for (const p of prices) {
-        const key = `${p.customerPrice ?? '?'} ${p.currency ?? ''}`.trim();
-        byPrice.set(key, [...(byPrice.get(key) ?? []), p.territory]);
-      }
-
       results.push({
         subscription: {
           id: sub.id,
@@ -106,28 +222,38 @@ export async function pricingGet(
           group: group.attributes?.referenceName,
         },
         territoriesWithAPrice: prices.length,
-        groupedByPrice: [...byPrice.entries()]
-          .map(([price, territories]) => ({ price, count: territories.length, territories }))
-          .sort((a, b) => b.count - a.count),
+        groupedByPrice: groupByPrice(prices),
         prices,
       });
     }
   }
 
-  if (!results.length) {
+  const inAppPurchases = await inAppPurchasePricing(ctx, app.id, {
+    product: productFilter,
+    territory: args.territory,
+  });
+
+  // Absence of one kind is not absence of pricing. Throw only when the app
+  // sells nothing at all — answering "has no subscriptions" for an app whose
+  // whole business is a non-consumable reads as "has no pricing", and sent one
+  // caller hand-walking price schedules that this tool already covers.
+  if (!results.length && !inAppPurchases.length) {
     throw new Error(
-      args.subscription
-        ? `No subscription matched "${args.subscription}" in ${app.bundleId}.`
-        : `${app.bundleId} has no subscriptions.`
+      productFilter
+        ? `No subscription or in-app purchase matched "${productFilter}" in ${app.bundleId}.`
+        : `${app.bundleId} has no subscriptions and no in-app purchases.`
     );
   }
 
   return {
     app,
     subscriptions: results,
+    inAppPurchases,
     note:
       'Territory codes are ISO alpha-3 (USA, not US). A filter using the two-letter form returns ' +
-      'an empty list rather than an error, which reads as "not sold there".',
+      'an empty list rather than an error, which reads as "not sold there". For one-time ' +
+      'purchases, `manual: true` is the price set deliberately (the base territory); the rest ' +
+      'are equalised by Apple from it.',
   };
 }
 

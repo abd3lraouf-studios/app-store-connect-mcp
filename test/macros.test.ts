@@ -78,6 +78,14 @@ function appLookup(id = '123', bundleId = 'com.example.app') {
   });
 }
 
+/**
+ * asc_pricing_get reads both product kinds, so every pricing chain needs this
+ * hop even when the app sells no one-time purchases.
+ */
+function noIaps(appId = '123') {
+  return http.get(`${BASE}/v1/apps/${appId}/inAppPurchasesV2`, () => HttpResponse.json({ data: [] }));
+}
+
 // ---------------------------------------------------------------------------
 describe('app resolution', () => {
   it('accepts a numeric Apple ID', async () => {
@@ -85,11 +93,12 @@ describe('app resolution', () => {
       http.get(`${BASE}/v1/apps/9999`, () =>
         HttpResponse.json({ data: { id: '9999', attributes: { bundleId: 'com.x', name: 'X' } } })
       ),
-      http.get(`${BASE}/v1/apps/9999/subscriptionGroups`, () => HttpResponse.json({ data: [] }))
+      http.get(`${BASE}/v1/apps/9999/subscriptionGroups`, () => HttpResponse.json({ data: [] })),
+      noIaps('9999')
     );
-    // Resolution succeeds by numeric id; the failure is the empty group list.
+    // Resolution succeeds by numeric id; the failure is that it sells nothing.
     const { out } = await call('asc_pricing_get', { app: '9999' });
-    expect(out.error).toMatch(/no subscriptions/);
+    expect(out.error).toMatch(/no subscriptions and no in-app purchases/);
   });
 
   it('says what to try when nothing matches', async () => {
@@ -119,6 +128,7 @@ describe('app resolution', () => {
 describe('asc_pricing_get', () => {
   const pricingHandlers = [
     appLookup(),
+    noIaps(),
     http.get(`${BASE}/v1/apps/123/subscriptionGroups`, () =>
       HttpResponse.json({ data: [{ id: 'g1', attributes: { referenceName: 'Main' } }] })
     ),
@@ -186,10 +196,112 @@ describe('asc_pricing_get', () => {
     expect(out.note).toMatch(/alpha-3/);
   });
 
-  it('says so when the app has no subscriptions', async () => {
-    mock.use(appLookup(), http.get(`${BASE}/v1/apps/123/subscriptionGroups`, () => HttpResponse.json({ data: [] })));
+  it('errors only when the app sells nothing at all', async () => {
+    mock.use(
+      appLookup(),
+      http.get(`${BASE}/v1/apps/123/subscriptionGroups`, () => HttpResponse.json({ data: [] })),
+      noIaps()
+    );
     const { out } = await call('asc_pricing_get', { app: 'com.example.app' });
-    expect(out.error).toMatch(/no subscriptions/);
+    expect(out.error).toMatch(/no subscriptions and no in-app purchases/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+/**
+ * An app whose whole business is a one-time purchase still has pricing. This
+ * used to throw "has no subscriptions", which reads as "has no pricing" and
+ * sent a caller hand-walking price schedules the tool already covers.
+ */
+describe('asc_pricing_get — one-time purchases', () => {
+  const iapHandlers = [
+    appLookup(),
+    http.get(`${BASE}/v1/apps/123/subscriptionGroups`, () => HttpResponse.json({ data: [] })),
+    http.get(`${BASE}/v1/apps/123/inAppPurchasesV2`, () =>
+      HttpResponse.json({
+        data: [
+          {
+            id: 'iap1',
+            attributes: {
+              name: 'Pro',
+              productId: 'com.example.pro',
+              inAppPurchaseType: 'NON_CONSUMABLE',
+              state: 'READY_TO_SUBMIT',
+            },
+          },
+        ],
+      })
+    ),
+    http.get(`${BASE}/v2/inAppPurchases/iap1/iapPriceSchedule`, () =>
+      HttpResponse.json({
+        data: { id: 'sched1', relationships: { baseTerritory: { data: { id: 'USA', type: 'territories' } } } },
+      })
+    ),
+    http.get(`${BASE}/v1/inAppPurchasePriceSchedules/sched1/manualPrices`, () =>
+      HttpResponse.json({
+        data: [
+          {
+            id: 'm1',
+            attributes: { manual: true, startDate: null },
+            relationships: {
+              territory: { data: { id: 'USA', type: 'territories' } },
+              inAppPurchasePricePoint: { data: { id: 'ppUSA', type: 'inAppPurchasePricePoints' } },
+            },
+          },
+        ],
+        included: [
+          { id: 'USA', type: 'territories', attributes: { currency: 'USD' } },
+          { id: 'ppUSA', type: 'inAppPurchasePricePoints', attributes: { customerPrice: '4.99', proceeds: '3.50' } },
+        ],
+      })
+    ),
+    http.get(`${BASE}/v1/inAppPurchasePriceSchedules/sched1/automaticPrices`, () =>
+      HttpResponse.json({
+        data: [
+          {
+            id: 'a1',
+            attributes: { manual: false, startDate: null },
+            relationships: {
+              territory: { data: { id: 'EGY', type: 'territories' } },
+              inAppPurchasePricePoint: { data: { id: 'ppEGY', type: 'inAppPurchasePricePoints' } },
+            },
+          },
+        ],
+        included: [
+          { id: 'EGY', type: 'territories', attributes: { currency: 'EGP' } },
+          { id: 'ppEGY', type: 'inAppPurchasePricePoints', attributes: { customerPrice: '249.99', proceeds: '153.50' } },
+        ],
+      })
+    ),
+  ];
+
+  it('prices an app that has no subscriptions at all', async () => {
+    mock.use(...iapHandlers);
+    const { out } = await call('asc_pricing_get', { app: 'com.example.app' });
+    expect(out.error).toBeUndefined();
+    expect(out.subscriptions).toEqual([]);
+    expect(out.inAppPurchases).toHaveLength(1);
+    expect(out.inAppPurchases[0].inAppPurchase.productId).toBe('com.example.pro');
+    expect(out.inAppPurchases[0].inAppPurchase.type).toBe('NON_CONSUMABLE');
+  });
+
+  it('resolves the amount from the price point and the currency from the territory', async () => {
+    mock.use(...iapHandlers);
+    const { out } = await call('asc_pricing_get', { app: 'com.example.app' });
+    const prices = out.inAppPurchases[0].prices;
+    const usa = prices.find((p: any) => p.territory === 'USA');
+    const egy = prices.find((p: any) => p.territory === 'EGY');
+    expect(usa).toMatchObject({ currency: 'USD', customerPrice: '4.99', proceeds: '3.50' });
+    expect(egy).toMatchObject({ currency: 'EGP', customerPrice: '249.99' });
+  });
+
+  it('distinguishes the deliberate base price from Apple’s equalised ones', async () => {
+    mock.use(...iapHandlers);
+    const { out } = await call('asc_pricing_get', { app: 'com.example.app' });
+    const prices = out.inAppPurchases[0].prices;
+    expect(prices.find((p: any) => p.territory === 'USA').manual).toBe(true);
+    expect(prices.find((p: any) => p.territory === 'EGY').manual).toBe(false);
+    expect(out.inAppPurchases[0].baseTerritory).toBe('USA');
   });
 });
 
@@ -597,5 +709,139 @@ describe('asc_listing_screenshots', () => {
     // Reporting one locale as if it were all of them is the trap here.
     expect(out.localesOnVersion).toBe(2);
     expect(out.note).toMatch(/Showing 1 of 2 locales/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+/**
+ * Apple gives availability no bulk endpoint, so this is one PATCH per
+ * territory. The failure that matters is not an error — it is a loop that
+ * finishes having quietly skipped one, which reads as success.
+ */
+describe('asc_availability_set', () => {
+  /** Serves "before" on the first read and "after" on the verification read. */
+  function territories(before: Array<[string, boolean]>, after?: Array<[string, boolean]>) {
+    let reads = 0;
+    return http.get(`${BASE}/v2/appAvailabilities/123/territoryAvailabilities`, () => {
+      const rows = reads++ === 0 ? before : (after ?? before);
+      return HttpResponse.json({
+        data: rows.map(([code, available]) => ({
+          id: `ta-${code}`,
+          attributes: { available, contentStatuses: [available ? 'AVAILABLE' : 'CANNOT_SELL'] },
+          relationships: { territory: { data: { id: code, type: 'territories' } } },
+        })),
+        included: rows.map(([code]) => ({ id: code, type: 'territories', attributes: { currency: 'USD' } })),
+      });
+    });
+  }
+
+  const patchOk = () =>
+    http.patch(`${BASE}/v1/territoryAvailabilities/:id`, ({ params }) =>
+      HttpResponse.json({ data: { id: params.id, attributes: { available: true } } })
+    );
+
+  it('is gated as RELEASE and names the blast radius before running', async () => {
+    // No handlers at all: a request before confirmation would fail the test.
+    const { out } = await call('asc_availability_set', { app: 'com.example.app', state: 'off' });
+    expect(out.confirmationRequired).toBe(true);
+    expect(out.risk).toBe('RELEASE');
+    expect(out.willDo).toMatch(/EVERY territory/);
+    expect(out.willDo).toMatch(/stops being downloadable/);
+  });
+
+  it('accepts its own confirmation token', async () => {
+    // The token is injected into the macro's own arguments, so fingerprinting
+    // the whole argument object hashed {app,state} on the way out and
+    // {app,state,confirm} on the way back in — and every gated macro rejected
+    // its own token. Both calls must share one server: the gate holds pending
+    // tokens in memory, so a second connection would never have issued it.
+    const { client, close } = await connect();
+    const args = { app: 'com.example.app', state: 'off' };
+
+    const first = payload(await client.callTool({ name: 'asc_availability_set', arguments: args }));
+    expect(first.token).toBeTruthy();
+
+    mock.use(appLookup(), territories([['USA', true]], [['USA', false]]), patchOk());
+    const second = payload(
+      await client.callTool({ name: 'asc_availability_set', arguments: { ...args, confirm: first.token } })
+    );
+    await close();
+
+    expect(second.error).toBeUndefined();
+    expect(second.changed).toBe(1);
+  });
+
+  it('skips territories already in the target state', async () => {
+    mock.use(appLookup(), territories([['USA', true], ['GBR', false]], [['USA', false], ['GBR', false]]), patchOk());
+    const { client, close } = await connect({ safety: 'no-confirm' });
+    const res = await client.callTool({ name: 'asc_availability_set', arguments: { app: 'com.example.app', state: 'off' } });
+    await close();
+    const out = payload(res);
+    expect(out.changed).toBe(1);
+    expect(out.unchanged).toBe(1);
+    expect(out.operations.find((o: any) => o.territory === 'GBR').status).toBe('unchanged');
+  });
+
+  it('reports a territory the writes did not take effect on', async () => {
+    // Both were asked to go off; the re-read says GBR is still on. An
+    // operation log alone would call this a clean run.
+    mock.use(appLookup(), territories([['USA', true], ['GBR', true]], [['USA', false], ['GBR', true]]), patchOk());
+    const { client, close } = await connect({ safety: 'no-confirm' });
+    const res = await client.callTool({ name: 'asc_availability_set', arguments: { app: 'com.example.app', state: 'off' } });
+    await close();
+    const out = payload(res);
+    expect(out.changed).toBe(2);
+    expect(out.verified.mismatched).toEqual(['GBR']);
+    expect(out.verified.matching).toBe(1);
+  });
+
+  it('keeps going after a failure instead of abandoning the rest', async () => {
+    mock.use(
+      appLookup(),
+      territories([['USA', true], ['GBR', true]], [['USA', false], ['GBR', true]]),
+      http.patch(`${BASE}/v1/territoryAvailabilities/:id`, ({ params }) =>
+        params.id === 'ta-GBR'
+          ? HttpResponse.json({ errors: [{ status: '409', code: 'CONFLICT', detail: 'nope' }] }, { status: 409 })
+          : HttpResponse.json({ data: { id: params.id } })
+      )
+    );
+    const { client, close } = await connect({ safety: 'no-confirm' });
+    const res = await client.callTool({ name: 'asc_availability_set', arguments: { app: 'com.example.app', state: 'off' } });
+    await close();
+    const out = payload(res);
+    expect(out.changed).toBe(1);
+    expect(out.failed).toHaveLength(1);
+    expect(out.failed[0].territory).toBe('GBR');
+    expect(out.failed[0].httpStatus).toBe(409);
+  });
+
+  it('refuses a two-letter territory code rather than matching nothing', async () => {
+    mock.use(appLookup(), territories([['USA', true]]));
+    const { client, close } = await connect({ safety: 'no-confirm' });
+    const res = await client.callTool({
+      name: 'asc_availability_set',
+      arguments: { app: 'com.example.app', state: 'off', territories: ['US'] },
+    });
+    await close();
+    expect(payload(res).error).toMatch(/ISO alpha-3/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('asc_upload_iap_screenshot', () => {
+  it('is gated as RELEASE', async () => {
+    const { out } = await call('asc_upload_iap_screenshot', { iap: '6802176256', file_path: '/tmp/x.png' });
+    expect(out.confirmationRequired).toBe(true);
+    expect(out.risk).toBe('RELEASE');
+  });
+
+  it('says how to find the id when given a product ID', async () => {
+    const { client, close } = await connect({ safety: 'no-confirm' });
+    const res = await client.callTool({
+      name: 'asc_upload_iap_screenshot',
+      arguments: { iap: 'com.example.pro', file_path: '/tmp/x.png' },
+    });
+    await close();
+    expect(payload(res).error).toMatch(/not a numeric in-app purchase id/);
   });
 });

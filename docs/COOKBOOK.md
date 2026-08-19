@@ -121,6 +121,57 @@ already moved.
 That is why writes carry a risk tier rather than being judged by HTTP method,
 and why the strong tiers ask before they run.
 
+## 12. Absence of a subscription is not absence of pricing
+
+An app can sell nothing but a one-time purchase. Walking `app →
+subscriptionGroups → subscriptions` and reporting "no subscriptions" for such an
+app reads as *"this app has no pricing"* — while a full price schedule sits on
+`inAppPurchasePriceSchedules`, across every territory.
+
+`asc_pricing_get` covers both kinds for this reason. If you read prices by hand,
+check `/v1/apps/{id}/inAppPurchasesV2` before concluding anything is unpriced.
+
+For one-time purchases the schedule splits in two: `manualPrices` is what was
+set deliberately (the base territory), `automaticPrices` is everything Apple
+equalised from it. Reading only the first gives you one territory and looks
+complete.
+
+## 13. `appAvailabilities` cannot be updated, only created
+
+`PATCH /v2/appAvailabilities/{id}` answers:
+
+```
+403 FORBIDDEN_ERROR — The resource 'appAvailabilities' does not allow 'UPDATE'.
+                      Allowed operations are: CREATE, GET_INSTANCE
+```
+
+Once the record exists — which it does for any app that has ever been released —
+there is **no bulk way to change availability**. Taking an app off sale or
+putting it back is one `PATCH /v1/territoryAvailabilities/{id}` per territory,
+up to 175 of them. `asc_availability_set` does this, including the re-read
+afterwards; a loop that finishes is not evidence that the store matches what was
+asked for.
+
+`availableInNewTerritories` lives on the un-updatable record, so it cannot be
+set through the API at all. It is web-UI only.
+
+Territory changes are also **asynchronous**: a territory reports
+`PROCESSING_TO_AVAILABLE` alongside its old status for a while after a
+successful write, so an immediate re-read can look like the change failed.
+
+## 14. Asset uploads fail after they succeed
+
+Reserve → PUT → commit all return 200 for an image Apple will reject. Validation
+happens afterwards, and the verdict appears in `assetDeliveryState` on a later
+read — `{ state: 'FAILED', errors: [{ code: 'IMAGE_BAD_ASPECT_RATIO' }] }`.
+
+The commonest cause for a review screenshot is a non-standard aspect ratio: a
+captured app window (e.g. 1706×1610) is refused, while a standard Mac
+screenshot size (2880×1800) is accepted. Pad the capture rather than scaling it.
+
+A reservation whose upload never completed sits in `AWAITING_UPLOAD` and blocks
+the next attempt with a `409`; delete it before retrying.
+
 ---
 
 *Corrections welcome. If you hit something this document should have warned you

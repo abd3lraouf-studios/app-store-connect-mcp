@@ -640,7 +640,8 @@ export function createServer(config: Config): Server {
               // `{app, confirm}` second, and every gated macro would reject its own token with
               // "Confirmation token does not match this request". asc_write avoids this by
               // hashing `args.body`, where `confirm` is a sibling rather than a member.
-              const { confirm: _confirm, ...gated } = args;
+              const gated = { ...args };
+              delete gated.confirm;
               const blocked = gate.check(
                 { operationId: macro.name, method: 'MACRO', path: macro.name, query: undefined, body: gated },
                 macro.risk,

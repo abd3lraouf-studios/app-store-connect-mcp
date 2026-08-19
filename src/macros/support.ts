@@ -94,6 +94,41 @@ export async function resolveApp(
   return { id: hit.id, bundleId: hit.attributes.bundleId, name: hit.attributes.name };
 }
 
+/**
+ * Every row across every page, **with `included` preserved**.
+ *
+ * `getAll` unwraps `requestAll`, which keeps only `data` — fine when the rows
+ * are self-describing, useless when the answer lives in a sideloaded resource.
+ * A price row names a price point and a territory but holds neither the amount
+ * nor the currency, so dropping `included` turns a one-request answer into ~175.
+ *
+ * The cursor is followed by path and query only, never as an absolute URL:
+ * `links.next` is server-supplied input, and rebuilding the request against our
+ * own `baseUrl` means a redirected cursor cannot move the call to another host.
+ */
+export async function getAllWithIncluded(
+  ctx: MacroContext,
+  path: string,
+  query?: Record<string, unknown>,
+  maxPages = 10
+): Promise<{ data: any[]; included: Map<string, any> }> {
+  const rows: any[] = [];
+  const included = new Map<string, any>();
+  let body = await get(ctx, path, query);
+
+  for (let page = 0; page < maxPages; page++) {
+    rows.push(...(body.data ?? []));
+    for (const [key, value] of indexIncluded(body)) included.set(key, value);
+
+    const next: string | undefined = body?.links?.next;
+    if (!next) break;
+    const url = new URL(next);
+    body = await get(ctx, url.pathname, Object.fromEntries(url.searchParams));
+  }
+
+  return { data: rows, included };
+}
+
 /** Index an `included` array by "type:id" for cheap lookups. */
 export function indexIncluded(body: any): Map<string, any> {
   const map = new Map<string, any>();
