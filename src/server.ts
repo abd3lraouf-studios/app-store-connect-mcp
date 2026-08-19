@@ -634,8 +634,15 @@ export function createServer(config: Config): Server {
               return text({ blocked: true, message: 'The user declined this change.' }, true);
             }
             if (approved === undefined) {
+              // Fingerprint the arguments WITHOUT `confirm`. The token is injected into every
+              // non-READ macro's schema above, so it arrives inside `args` on the confirming
+              // call — fingerprinting the whole object would hash `{app}` first and
+              // `{app, confirm}` second, and every gated macro would reject its own token with
+              // "Confirmation token does not match this request". asc_write avoids this by
+              // hashing `args.body`, where `confirm` is a sibling rather than a member.
+              const { confirm: _confirm, ...gated } = args;
               const blocked = gate.check(
-                { operationId: macro.name, method: 'MACRO', path: macro.name, query: undefined, body: args },
+                { operationId: macro.name, method: 'MACRO', path: macro.name, query: undefined, body: gated },
                 macro.risk,
                 args.confirm
               );
