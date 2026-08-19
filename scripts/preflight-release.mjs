@@ -62,7 +62,21 @@ if (!toolNames.length) {
   }
 }
 
-// 4. The spec index must be current with respect to the spec it came from.
+// 4. server.json must agree with package.json, or the registry advertises a
+//    version and a package identifier that do not exist.
+const server = JSON.parse(read('server.json'));
+if (server.version !== pkg.version) {
+  problems.push(`server.json version ${server.version} does not match package.json ${pkg.version}.`);
+}
+const registryPkg = server.packages?.[0];
+if (registryPkg?.version !== pkg.version) {
+  problems.push(`server.json packages[0].version ${registryPkg?.version} does not match package.json ${pkg.version}.`);
+}
+if (registryPkg?.identifier !== pkg.name) {
+  problems.push(`server.json packages[0].identifier ${registryPkg?.identifier} is not the published name ${pkg.name}.`);
+}
+
+// 5. The spec index must be current with respect to the spec it came from.
 const specVersion = JSON.parse(read('spec/apple-openapi.json')).info.version;
 if (index.apiVersion !== specVersion) {
   problems.push(`spec/index.json is built from v${index.apiVersion} but the spec is v${specVersion}. Run: npm run build:index`);

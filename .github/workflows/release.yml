@@ -1,20 +1,65 @@
 name: Release
 
+# Autonomous: bump the version in package.json and server.json, merge to main,
+# and this publishes to npm and to the MCP Registry. There is no tag to
+# remember and no token to rotate — both registries authenticate with the
+# workflow's own OIDC identity.
+#
+# The trigger is a version that is not yet on npm, rather than a tag. That
+# makes the job idempotent: re-running it, or pushing an unrelated commit,
+# publishes nothing. A failed release is retried by re-running the job, not by
+# deleting and re-pushing a tag.
+
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  # Never two publishes at once; a queued one would race the version check.
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  publish:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should-publish: ${{ steps.compare.outputs.should-publish }}
+      version: ${{ steps.compare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+
+      - name: Is this version already published?
+        id: compare
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # `npm view` exits non-zero for a package that does not exist yet,
+          # which is the first-publish case and must not fail the job.
+          PUBLISHED=$(npm view "$NAME@$VERSION" version 2>/dev/null || true)
+
+          if [ -n "$PUBLISHED" ]; then
+            echo "should-publish=false" >> "$GITHUB_OUTPUT"
+            echo "$NAME@$VERSION is already on npm. Nothing to do." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "should-publish=true" >> "$GITHUB_OUTPUT"
+            echo "Releasing $NAME@$VERSION." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  release:
+    needs: check
+    if: needs.check.outputs.should-publish == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      # Required for npm trusted publishing. With OIDC configured, npm
-      # generates provenance automatically — no --provenance flag, no token.
-      id-token: write
+      contents: write   # tag and GitHub Release
+      id-token: write   # npm trusted publishing AND mcp-publisher github-oidc
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,13 +67,70 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           cache: npm
-      # Trusted publishing needs npm >= 11.5.1.
+
+      # Trusted publishing needs npm >= 11.5.1. With OIDC configured, npm
+      # attaches provenance by itself — no --provenance flag, no NPM_TOKEN.
       - run: npm install -g npm@latest
       - run: npm ci --ignore-scripts
+
+      # The full gate. A release that skips this is how a broken package
+      # reaches people who cannot easily go back.
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
       - run: npm run build
+
+      # Cross-checks the version across package.json and server.json, the
+      # advertised tool and operation counts, and that the committed spec
+      # index matches the committed spec.
       - name: Release pre-flight
         run: node scripts/preflight-release.mjs
-      - run: npm publish
+
+      # The packaging test already asserts the tarball's contents; this makes
+      # the file list visible in the log for anyone auditing a release.
+      - run: npm pack --dry-run
+
+      - name: Publish to npm
+        run: npm publish
+
+      - name: Install mcp-publisher
+        run: |
+          VERSION=$(gh release view --repo modelcontextprotocol/registry --json tagName --jq .tagName)
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/${VERSION}/mcp-publisher_linux_amd64.tar.gz" \
+            | tar -xz mcp-publisher
+          sudo install -m 0755 mcp-publisher /usr/local/bin/mcp-publisher
+          mcp-publisher --help >/dev/null
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The registry verifies that this workflow belongs to the GitHub org in
+      # the server name, and that the npm package carries a matching mcpName.
+      - name: Publish to the MCP Registry
+        run: |
+          mcp-publisher login github-oidc
+          mcp-publisher publish
+
+      - name: Tag the release
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ needs.check.outputs.version }}" -m "Release v${{ needs.check.outputs.version }}"
+          git push origin "v${{ needs.check.outputs.version }}"
+
+      - name: Create the GitHub Release
+        run: |
+          gh release create "v${{ needs.check.outputs.version }}" \
+            --title "v${{ needs.check.outputs.version }}" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true   # notes are nice to have; the publish already happened
+
+      - name: Summary
+        run: |
+          {
+            echo "### Released v${{ needs.check.outputs.version }}"
+            echo
+            echo "- npm: https://www.npmjs.com/package/$(node -p "require('./package.json').name")"
+            echo "- MCP Registry: $(node -p "require('./server.json').name")"
+          } >> "$GITHUB_STEP_SUMMARY"

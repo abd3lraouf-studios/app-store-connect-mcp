@@ -427,6 +427,21 @@ Stated plainly, because you will find them anyway:
   anchor**, not Apple's — getting a genuinely Apple-signed payload needs a real
   customer transaction. The chain logic is Apple's own library.
 
+## Releasing
+
+Bump, merge, done. Both registries authenticate with the workflow's own OIDC
+identity, so there is no token to rotate and no tag to remember:
+
+```bash
+npm run release:version patch     # or minor, major, or an exact version
+git commit -am "Release v1.0.1" && git push
+```
+
+CI notices a version that is not yet on npm, runs the full gate, then publishes
+to npm and the MCP Registry, tags the commit and opens a GitHub Release. The
+trigger is the version rather than a tag, which makes the job idempotent —
+re-running it publishes nothing.
+
 ## Licence
 
 [Business Source License 1.1](LICENSE). Free for internal use, evaluation and
