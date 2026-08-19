@@ -24,7 +24,18 @@ beforeAll(() => {
     stdio: ['ignore', 'pipe', 'pipe'],
     shell: process.platform === 'win32',
   });
-  const parsed = JSON.parse(out)[0];
+  // npm 11 returns an array of packed packages; npm 12 returns an object keyed
+  // by package name. The release job installs npm@latest while CI uses the
+  // bundled npm, so the two disagree — and reading [0] made the release fail
+  // on a green CI, which is the least useful place to discover a format change.
+  const raw: unknown = JSON.parse(out);
+  const parsed = (Array.isArray(raw) ? raw[0] : Object.values(raw as Record<string, unknown>)[0]) as {
+    files: { path: string }[];
+    size: number;
+  };
+  if (!parsed?.files) {
+    throw new Error(`npm pack --json returned an unrecognised shape: ${out.slice(0, 200)}`);
+  }
   files = parsed.files.map((f: { path: string }) => f.path);
   sizeBytes = parsed.size;
 }, 120_000);
