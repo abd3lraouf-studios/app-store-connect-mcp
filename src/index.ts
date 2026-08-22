@@ -3,6 +3,7 @@ import { loadConfig } from './config.js';
 import { createServer } from './server.js';
 import { startHttp, startStdio } from './transport.js';
 import { activeCount, whenIdle } from './inflight.js';
+import { flushFailureLog } from './failure-log.js';
 
 const HELP = `app-store-connect-mcp — App Store Connect + App Store Server (StoreKit 2) over MCP
 
@@ -38,6 +39,13 @@ Other:
   --no-online-checks
                   Skip OCSP revocation checks when verifying Apple's signatures.
                   Faster and works offline; accepts a revoked certificate.
+
+Failure log (env only — diagnostics plumbing, not configuration):
+  ASC_FAILURE_LOG_DIR       Write failure records here. Set, and never falls back.
+  ASC_FAILURE_LOG=1|0       Force logging on (no checkout needed) or off entirely.
+                            Default: on when a checkout of this repo or an
+                            installed app-store-connect skill is found, else off.
+  ASC_FAILURE_LOG_MAX_BYTES Rotation threshold. Default 5 MiB, 3 files kept.
 `;
 
 /**
@@ -85,10 +93,18 @@ function installShutdownHandlers(): void {
     void whenIdle(graceMs)
       .then(flushStdout)
       .then(() => {
+        // Repeat-summaries are held in memory until the dedupe window closes;
+        // process.exit(0) below would take them with it.
+        flushFailureLog();
         console.error(`app-store-connect-mcp: shutting down (${reason})`);
         process.exit(0);
       });
   };
+
+  // Backstop for the paths that never reach shutdown() — an uncaught throw, a
+  // SIGKILL-adjacent exit. Handlers on 'exit' may only do sync work, which is
+  // what flushFailureLog is.
+  process.on('exit', () => flushFailureLog());
 
   process.stdin.on('end', () => shutdown('stdin closed', DRAIN_MS));
   process.stdin.on('close', () => shutdown('stdin closed', DRAIN_MS));

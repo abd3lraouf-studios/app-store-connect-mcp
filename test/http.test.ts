@@ -14,6 +14,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { ApiClient, ApiError, renderPath, assertAllowedUrl } from '../src/http.js';
 import { TokenMinter } from '../src/jwt.js';
 import { RateLimiter } from '../src/ratelimit.js';
+import type { FailureEvent } from '../src/failure-log.js';
 
 const BASE = 'https://api.appstoreconnect.apple.com';
 const { privateKey } = generateKeyPairSync('ec', {
@@ -30,12 +31,18 @@ afterAll(() => server.close());
 /** A limiter that never paces, so retry timing is the only delay in play. */
 const noPacing = () => new RateLimiter(1e9, 1e9, Date.now, async () => {});
 
-function client(timeoutMs = 5000) {
+function client(timeoutMs = 5000, onFailure?: (event: FailureEvent) => void) {
   const minter = new TokenMinter(
     { privateKey: privateKey, issuerId: 'i', keyId: 'k', source: 'test' },
     'com.example.app'
   );
-  return new ApiClient(minter, { timeoutMs }, noPacing());
+  return new ApiClient(minter, { timeoutMs, onFailure }, noPacing());
+}
+
+/** Collect what the client reports, without letting it touch a filesystem. */
+function recorder() {
+  const events: FailureEvent[] = [];
+  return { events, sink: (e: FailureEvent) => events.push(e) };
 }
 
 const get = (spec: Partial<Parameters<ApiClient['request']>[0]> = {}) => ({
@@ -300,5 +307,72 @@ describe('pagination', () => {
       5
     );
     expect((res.data as any).pages).toBe(2);
+  });
+});
+
+
+/**
+ * The client reports failures through a callback rather than importing the
+ * logger, so this suite can assert the exact event without any of these tests
+ * acquiring a filesystem side-effect.
+ */
+describe('failure reporting', () => {
+  it('reports once per failed request, not once per attempt', async () => {
+    let hits = 0;
+    server.use(
+      http.get(`${BASE}/v1/apps`, () => {
+        hits += 1;
+        return HttpResponse.json({ errors: [{ status: '503', code: 'BUSY' }] }, { status: 503 });
+      })
+    );
+    const { events, sink } = recorder();
+    await expect(client(5000, sink).request(get())).rejects.toThrow(ApiError);
+
+    expect(hits).toBe(4);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: 'http', status: 503, code: 'BUSY', attempts: 4 });
+  });
+
+  // Surfaced once in the tool result today and then lost with the transcript.
+  it('carries Apple’s x-request-id into the event', async () => {
+    server.use(
+      http.get(`${BASE}/v1/apps`, () =>
+        HttpResponse.json({ errors: [{ status: '404', code: 'NOT_FOUND' }] }, {
+          status: 404,
+          headers: { 'x-request-id': 'REQ-9' },
+        })
+      )
+    );
+    const { events, sink } = recorder();
+    await expect(client(5000, sink).request(get())).rejects.toThrow(ApiError);
+    expect(events[0]?.requestId).toBe('REQ-9');
+  });
+
+  it('marks a timed-out write as ambiguous, because it may have been applied', async () => {
+    server.use(http.post(`${BASE}/v1/apps`, async () => { await new Promise((r) => setTimeout(r, 200)); return HttpResponse.json({}); }));
+    const { events, sink } = recorder();
+    await expect(client(20, sink).request(get({ method: 'POST', body: {} }))).rejects.toThrow(ApiError);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: 'network', status: 0, ambiguous: true });
+  });
+
+  it('says nothing when a retry succeeds', async () => {
+    let n = 0;
+    server.use(
+      http.get(`${BASE}/v1/apps`, () => (n++ === 0 ? new HttpResponse(null, { status: 503 }) : HttpResponse.json({ data: [] })))
+    );
+    const { events, sink } = recorder();
+    await expect(client(5000, sink).request(get())).resolves.toMatchObject({ ok: true });
+    expect(events).toHaveLength(0);
+  });
+
+  // Logging is a side-show; it must never change what the caller is told.
+  it('a sink that throws does not change what the caller sees', async () => {
+    server.use(http.get(`${BASE}/v1/apps`, () => HttpResponse.json({ errors: [{ code: 'X' }] }, { status: 400 })));
+    const boom = () => {
+      throw new Error('the sink is broken');
+    };
+    await expect(client(5000, boom).request(get())).rejects.toMatchObject({ name: 'ApiError', status: 400 });
   });
 });

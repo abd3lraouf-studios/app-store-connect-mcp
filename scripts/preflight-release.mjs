@@ -90,6 +90,33 @@ if (index.apiVersion !== specVersion) {
   problems.push(`spec/index.json is built from v${index.apiVersion} but the spec is v${specVersion}. Run: npm run build:index`);
 }
 
+// 6. The skill has to ship, and the package name it is matched against has to
+//    still be the package name.
+//
+// `failure-log.ts` carries the name as a literal, because resolving it at
+// runtime costs an I/O on a cold error path. That is a fine trade only as long
+// as something notices a rename: without this check, renaming the package would
+// silently stop the failure log from ever recognising a development checkout,
+// and the only symptom would be records quietly going somewhere else.
+const pkgNameInSource = /const PKG_NAME = '([^']+)'/.exec(read('src/failure-log.ts'))?.[1];
+if (pkgNameInSource !== pkg.name) {
+  problems.push(`src/failure-log.ts expects the package to be named ${pkgNameInSource}, but it is ${pkg.name}.`);
+}
+
+for (const required of [
+  'skills/app-store-connect/SKILL.md',
+  'skills/app-store-connect/scripts/asc-log-failure.mjs',
+]) {
+  if (!fs.existsSync(path.join(ROOT, required))) problems.push(`${required} is missing.`);
+}
+
+if (!pkg.files.includes('skills')) {
+  problems.push('package.json "files" does not include skills/, so the skill would not be published.');
+}
+if (!pkg.exports['./failure-log']) {
+  problems.push('package.json "exports" is missing ./failure-log, which the skill script imports by name.');
+}
+
 if (problems.length) {
   console.error('Release pre-flight failed:\n' + problems.map((p) => `  - ${p}`).join('\n'));
   process.exit(1);

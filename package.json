@@ -4,7 +4,8 @@
   "description": "App Store Connect MCP server for Claude Code, Claude Desktop and Cursor. 1,293 App Store Connect and StoreKit 2 (App Store Server API) operations behind 13 tools, with macOS Keychain credentials, Apple JWS signature verification and risk-tiered write confirmation.",
   "type": "module",
   "bin": {
-    "asc-mcp": "dist/index.js"
+    "asc-mcp": "dist/index.js",
+    "asc-mcp-skill": "scripts/install-skill.mjs"
   },
   "main": "dist/index.js",
   "files": [
@@ -12,7 +13,9 @@
     "spec",
     "certs",
     "docs/COOKBOOK.md",
-    "NOTICE"
+    "NOTICE",
+    "skills",
+    "!skills/**/.install.json"
   ],
   "scripts": {
     "build:index": "node scripts/build-index.mjs",
@@ -26,8 +29,10 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "preflight": "node scripts/preflight-release.mjs",
-    "lint": "eslint src test scripts",
-    "release:version": "node scripts/bump-version.mjs"
+    "lint": "eslint src test scripts skills",
+    "release:version": "node scripts/bump-version.mjs",
+    "install:skill": "node scripts/install-skill.mjs",
+    "triage": "node scripts/triage-failures.mjs"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -80,6 +85,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./failure-log": {
+      "types": "./dist/failure-log.d.ts",
+      "default": "./dist/failure-log.js"
     },
     "./package.json": "./package.json"
   },

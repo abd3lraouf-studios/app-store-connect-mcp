@@ -6,11 +6,13 @@
  * and breaks every client. No in-process harness can catch that, because the
  * transport is mocked away.
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { execFileSync, spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateKeyPairSync } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ENTRY = path.join(ROOT, 'dist/index.js');
@@ -21,15 +23,7 @@ const { privateKey } = generateKeyPairSync('ec', {
   publicKeyEncoding: { type: 'spki', format: 'pem' },
 });
 
-// Build without going through npm. On Windows, Node refuses to spawn a .cmd
-// without a shell (the CVE-2024-27980 fix), so `npm run build` fails with
-// EINVAL there. Invoking node directly is both cross-platform and faster.
-beforeAll(() => {
-  const run = (script: string, args: string[] = []) =>
-    execFileSync(process.execPath, [script, ...args], { cwd: ROOT, stdio: 'pipe' });
-  run('scripts/build-index.mjs');
-  run(path.join('node_modules', 'typescript', 'bin', 'tsc'), ['-p', 'tsconfig.build.json']);
-}, 180_000);
+// dist/ is built once by test/global-setup.ts.
 
 const env = {
   ...process.env,
@@ -163,5 +157,47 @@ describe('stdio transport', () => {
     const body = JSON.parse(reply.result.content[0].text);
     expect(body.error).toMatch(/No API key configured/);
     expect(body.error).toMatch(/tools are listed, but nothing can reach Apple/);
+  });
+});
+
+/**
+ * The two guarantees interact exactly once: when a call fails, the server both
+ * answers on stdout and writes to disk. Proving each separately does not prove
+ * that the second never contaminates the first.
+ */
+describe('failure logging leaves the JSON-RPC channel alone', () => {
+  it('records a failure to disk while stdout stays pure JSON-RPC', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'asc-stdio-'));
+    try {
+      // The suite disables logging by default; this test is about it running.
+      const bare: NodeJS.ProcessEnv = { ...process.env, ASC_FAILURE_LOG_DIR: dir, ASC_FAILURE_LOG: '' };
+      delete bare.ASC_KEY;
+      delete bare.ASC_PRIVATE_KEY_PATH;
+      delete bare.ASC_PRIVATE_KEY;
+
+      const child = spawn('node', [ENTRY], { env: bare, stdio: ['pipe', 'pipe', 'pipe'] });
+      let out = '';
+      child.stdout.on('data', (d) => (out += d));
+      child.stdin.write(
+        `${INIT}\n${READY}\n${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 5,
+          method: 'tools/call',
+          params: { name: 'asc_status', arguments: {} },
+        })}\n`
+      );
+      child.stdin.end();
+      const code: number = await new Promise((r) => child.on('close', r));
+
+      const lines = out.split('\n').filter((l) => l.trim());
+      for (const line of lines) expect(() => JSON.parse(line)).not.toThrow();
+      expect(code).toBe(0);
+
+      const log = fs.readFileSync(path.join(dir, 'failures.jsonl'), 'utf8').split('\n').filter((l) => l.trim());
+      expect(log.length).toBeGreaterThan(0);
+      expect(JSON.parse(log[0]!)).toMatchObject({ source: 'server', tool: 'asc_status' });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

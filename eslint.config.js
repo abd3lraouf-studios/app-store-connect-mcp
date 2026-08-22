@@ -36,8 +36,9 @@ export default tseslint.config(
     },
   },
   {
-    // Scripts are plain ESM run by Node, outside the tsconfig project.
-    files: ['scripts/**/*.mjs', 'eslint.config.js'],
+    // Scripts are plain ESM run by Node, outside the tsconfig project. The
+    // skill's script is the same kind of thing, shipped inside skills/.
+    files: ['scripts/**/*.mjs', 'skills/**/*.mjs', 'eslint.config.js'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       parserOptions: { projectService: false, project: null },

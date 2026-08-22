@@ -17,6 +17,7 @@
  */
 import { getAllWithIncluded, resolveApp, type MacroContext } from './support.js';
 import { ApiError } from '../http.js';
+import { recordFailure } from '../failure-log.js';
 
 interface Operation {
   territory: string;
@@ -144,6 +145,21 @@ export async function availabilitySet(
   // Apple applies these asynchronously, so a territory can read as not-yet-
   // matching for a short while after a successful write.
   const processing = after.filter((r) => r.contentStatuses?.some((s) => s.startsWith('PROCESSING'))).length;
+
+  // One record for the whole sweep, not one per territory: every individual
+  // ApiError above was already logged by http.ts, and 175 more lines would bury
+  // the fact that actually matters — that the store does not match the request.
+  if (failed.length || mismatched.length) {
+    recordFailure({
+      kind: 'partial',
+      subtype: 'territory-writes',
+      message:
+        `${failed.length} territory write(s) failed and ${mismatched.length} did not take` +
+        ` (${processing} still processing).`,
+      counts: { requested: scope.length, changed, unchanged, failed: failed.length, mismatched: mismatched.length },
+      detail: { territories: mismatched.slice(0, 20) },
+    });
+  }
 
   return {
     app,

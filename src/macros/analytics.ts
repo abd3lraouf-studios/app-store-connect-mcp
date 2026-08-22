@@ -21,11 +21,31 @@
  */
 import { gunzipSync } from 'node:zlib';
 import { getAll, resolveApp, type MacroContext } from './support.js';
+import { recordFailure } from '../failure-log.js';
+
+/** A pre-signed URL is a credential; only its host is safe to record. */
+function hostnameOf(url: string): string | undefined {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Segment URLs are pre-signed on a different host and take no bearer token. */
 async function fetchSegment(url: string): Promise<string> {
   const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
-  if (!res.ok) throw new Error(`Segment download failed with HTTP ${res.status}.`);
+  if (!res.ok) {
+    // Hostname only. The signature that makes this URL work lives in its path
+    // and query, so the URL itself is a credential.
+    recordFailure({
+      kind: 'segment-download',
+      message: `Segment download failed with HTTP ${res.status}.`,
+      status: res.status,
+      host: hostnameOf(url),
+    });
+    throw new Error(`Segment download failed with HTTP ${res.status}.`);
+  }
 
   const raw = Buffer.from(await res.arrayBuffer());
   // Apple gzips these; sniff the magic rather than trusting Content-Encoding,

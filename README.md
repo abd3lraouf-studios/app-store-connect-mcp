@@ -350,7 +350,7 @@ it is good, and it is a different trade to this one.
 Claims are cheap. These are checkable:
 
 ```
-300 tests · 93% line coverage · offline, no credentials, runs on every PR
+377 tests · 90% line coverage · offline, no credentials, runs on every PR
 ```
 
 - **Both directions of signature verification.** A verifier that rejected
@@ -371,7 +371,7 @@ Claims are cheap. These are checkable:
   no in-process harness can catch it.
 
 ```bash
-npm test              # 300 tests, offline
+npm test              # 377 tests, offline
 npm run verify        # 14 read-only checks against the live APIs
 npm run fetch:specs   # re-download both API descriptions from Apple
 ```
@@ -413,6 +413,67 @@ Docker builds distroless and runs as non-root. Note that stdio needs
 
 ---
 
+## The skill
+
+The server answers questions. It cannot stop a model drawing the wrong
+conclusion from a correct answer — an empty list because a territory was written
+`US` instead of `USA`, one page of thirty read as the whole account, "no
+subscriptions" for an app that sells a one-time purchase. There is no error to
+catch in any of those; the response was a 200.
+
+That judgement ships as a Claude Code skill:
+
+```bash
+npx -p @abd3lraouf/app-store-connect-mcp asc-mcp-skill
+```
+
+It installs into `~/.claude/skills/app-store-connect` (`--scope project` for
+`./.claude/skills`, `--link` to symlink a checkout so edits are live). It adds
+nothing to `settings.json`.
+
+The skill is a list of checks that fire *before* a conclusion, not a tour of the
+API. It hand-copies nothing that can be derived — no enum tables, no endpoint
+lists — and a test asserts that every tool name, resource URI, prompt and
+enum-shaped value in it still traces back to `src/` or to Apple's spec.
+
+### Failures are recorded
+
+Today a failure exists only as a tool result in a transcript. When the
+conversation ends, so does Apple's `x-request-id` — the one value Apple support
+asks for — along with any evidence of which operations a model tried and could
+not find.
+
+Both halves now write to `failures.jsonl`: the server records its own HTTP,
+network and swallowed failures, and the skill records the ones the server cannot
+see, the interpretation failures that arrived as a 200.
+
+```
+npm run triage        # what keeps failing, and what the cookbook never warned about
+```
+
+Where it writes, in order: `ASC_FAILURE_LOG_DIR` if set (and then nowhere else —
+an explicit destination that silently becomes a different destination is worse
+than none); otherwise a **working checkout of this package**, identified by
+carrying `src/` and `.git/`, which `npm pack` publishes neither of; otherwise the
+installed skill's own directory; otherwise `~/.claude`.
+
+On a machine with no checkout and no installed skill, it writes **nothing**
+unless `ASC_FAILURE_LOG=1` says otherwise. `ASC_FAILURE_LOG=0` disables it
+everywhere.
+
+What it will not write: request headers or request bodies, ever — only body
+*keys*, because `appStoreReviewDetails` carries a live `demoAccountPassword` in
+a plain body. Response payloads are reduced to Apple's error object. Pre-signed
+asset URLs are recorded as a hostname, since the signature is in the path. JWTs,
+bearer tokens, PEM blocks and email local-parts are scrubbed as a second line of
+defence.
+
+Records are appended as single bounded writes to an `O_APPEND` descriptor, so
+the server and the skill can share one file without a lock. That guarantee is
+POSIX's and does not hold on NFS — point `ASC_FAILURE_LOG_DIR` at local disk.
+
+---
+
 ## Known limits
 
 Stated plainly, because you will find them anyway:
@@ -425,6 +486,9 @@ Stated plainly, because you will find them anyway:
   anywhere a person is present.
 - **`--no-online-checks` skips OCSP**, which means accepting a revoked
   certificate.
+- **The failure log's lock-free append relies on `O_APPEND` atomicity**, which
+  network filesystems do not honour. `npm run triage` skips torn lines rather
+  than failing, but a network mount can lose records.
 - **The accept path for signatures is proven against a substituted trust
   anchor**, not Apple's — getting a genuinely Apple-signed payload needs a real
   customer transaction. The chain logic is Apple's own library.

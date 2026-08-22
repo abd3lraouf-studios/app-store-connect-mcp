@@ -21,6 +21,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { get, getAll, resolveApp, type MacroContext } from './support.js';
+import { recordFailure } from '../failure-log.js';
 
 /** Apple's own hosts are the only ones our bearer token may reach. */
 const APPLE_API_HOST = 'api.appstoreconnect.apple.com';
@@ -162,6 +163,14 @@ async function uploadAsset(
       });
 
       if (!res.ok) {
+        // Hostname only — the rest of a pre-signed URL is the credential.
+        recordFailure({
+          kind: 'asset-upload',
+          subtype: 'byte-range',
+          message: `Upload of bytes ${op.offset}–${op.offset + op.length} failed with HTTP ${res.status}.`,
+          status: res.status,
+          host: url.hostname,
+        });
         throw new Error(
           `Upload of bytes ${op.offset}–${op.offset + op.length} failed with HTTP ${res.status}.`
         );
@@ -169,6 +178,13 @@ async function uploadAsset(
       uploaded.push({ offset: op.offset, length: op.length, status: res.status });
     }
   } catch (error) {
+    // COOKBOOK #14, made countable: every one of these is an asset stranded in
+    // AWAITING_UPLOAD that will block the next attempt with a 409.
+    recordFailure({
+      kind: 'asset-upload',
+      subtype: 'reserved-but-incomplete',
+      message: error instanceof Error ? error.message : String(error),
+    });
     throw new Error(
       `${error instanceof Error ? error.message : String(error)}\n\n` +
         `Asset ${assetId} is reserved but incomplete and will sit in AWAITING_UPLOAD. ` +

@@ -10,6 +10,12 @@
  * rather than a list of complaints.
  */
 import { get, getAll, resolveApp, type MacroContext } from './support.js';
+import { recordFailure } from '../failure-log.js';
+
+/** Whatever a swallowed rejection turns out to be, reduce it to one line. */
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 interface Finding {
   severity: 'blocking' | 'warning';
@@ -54,7 +60,11 @@ export async function preflightVersion(
       'fields[builds]': 'version,processingState,expired,expirationDate,usesNonExemptEncryption,uploadedDate',
     });
     build = body.data;
-  } catch {
+  } catch (error) {
+    // Still swallowed on purpose — a missing build is a finding, not a crash —
+    // but no longer silently. A run of these means preflight is reporting
+    // confident GO/NO-GO verdicts built on data it never actually got.
+    recordFailure({ kind: 'swallowed', subtype: 'build-probe', message: describe(error) });
     build = undefined;
   }
 
@@ -173,7 +183,8 @@ export async function preflightVersion(
         'contactFirstName,contactLastName,contactEmail,contactPhone,demoAccountRequired,demoAccountName,demoAccountPassword,notes',
     });
     reviewDetail = body.data;
-  } catch {
+  } catch (error) {
+    recordFailure({ kind: 'swallowed', subtype: 'review-detail-probe', message: describe(error) });
     reviewDetail = undefined;
   }
 
@@ -209,7 +220,10 @@ export async function preflightVersion(
     'fields[reviewSubmissions]': 'state,platform,submittedDate',
     'filter[state]': 'READY_FOR_REVIEW,WAITING_FOR_REVIEW,IN_REVIEW,UNRESOLVED_ISSUES',
     limit: 10,
-  }).catch(() => []);
+  }).catch((error) => {
+    recordFailure({ kind: 'swallowed', subtype: 'open-submissions', message: describe(error) });
+    return [];
+  });
 
   if (submissions.length) {
     findings.push({

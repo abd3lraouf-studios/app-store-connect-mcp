@@ -45,6 +45,24 @@ import { MACROS, MACRO_BY_NAME, runMacro, type MacroContext } from './macros/ind
 import { begin, end } from './inflight.js';
 import { findUntrusted, untrustedNotice, redactPii } from './untrusted.js';
 import { JwsVerifier } from './jws.js';
+import { recordFailure, runWithFailureContext, describeBodyKeys } from './failure-log.js';
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * Reported to the client in the initialize handshake. Read rather than written
+ * out: the literal that used to live here still said 1.0.0 at 1.1.0.
+ */
+const PACKAGE_VERSION: string = (() => {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    return JSON.parse(fs.readFileSync(path.join(here, '..', 'package.json'), 'utf8')).version;
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 const MAX_PAGES_CAP = 50;
 
@@ -91,7 +109,7 @@ export function createServer(config: Config): Server {
     appAppleId: config.appAppleId,
     onlineChecks: config.onlineChecks,
   });
-  const client = minter ? new ApiClient(minter, { verifier }) : undefined;
+  const client = minter ? new ApiClient(minter, { verifier, onFailure: recordFailure }) : undefined;
 
   /** Anything that talks to Apple needs this; tools/list and prompts do not. */
   function requireClient(): ApiClient {
@@ -109,7 +127,7 @@ export function createServer(config: Config): Server {
   const resources = staticResources();
 
   const server = new Server(
-    { name: 'app-store-connect-mcp', version: '1.0.0' },
+    { name: 'app-store-connect-mcp', version: PACKAGE_VERSION },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 
@@ -412,301 +430,313 @@ export function createServer(config: Config): Server {
     const args = (rawArgs ?? {}) as Record<string, any>;
 
     begin();
-    try {
-      switch (name) {
-        case 'asc_status': {
-          const probe = await requireClient().request({
-            baseUrl: index.baseUrl,
-            method: 'GET',
-            path: '/v1/apps',
-            query: { limit: 1, 'fields[apps]': 'bundleId,name' },
-            audience: 'connect',
-          });
-          const apps = (probe.data as any)?.data ?? [];
-          return text({
-            connected: true,
-            keySource: creds?.source,
-            keyId: creds?.keyId,
-            issuerId: creds?.issuerId,
-            bundleId: config.bundleId ?? '(unset — App Store Server API calls will fail)',
-            safetyMode: gate.describeMode,
-            elicitation: server.getClientCapabilities()?.elicitation
-              ? 'supported — writes prompt the user directly'
-              : 'unavailable — writes fall back to a confirmation token',
-            storekitEnvironment: config.storekitEnvironment,
-            rateLimit: requireClient().limiter.state,
-            connectApi: { version: index.apiVersion, operations: index.operationCount },
-            storeKitApi: {
-              operations: STOREKIT_OPERATIONS.length,
-              host: STOREKIT_HOSTS[config.storekitEnvironment],
-              signatureVerification: verifier.available
-                ? `enabled against Apple Root CA - G3${config.onlineChecks ? ' with OCSP revocation checks' : ' (OCSP checks disabled)'}`
-                : `DISABLED — ${verifier.unavailable}`,
-            },
-            sampleApp: apps[0]?.attributes ?? null,
-          });
-        }
-
-        case 'asc_search_endpoints': {
-          const scope = args.api ?? 'both';
-          const out: Record<string, unknown> = {};
-
-          if (scope !== 'storekit') {
-            const { total, results } = searchOperations({
-              query: args.query,
-              method: args.method,
-              tag: args.tag,
-              risk: args.risk,
-              limit: args.limit,
+    // Tag everything logged beneath this call — including a failure raised deep
+    // inside a macro's HTTP layer — with the tool that caused it.
+    return runWithFailureContext({ tool: name, operationId: args.operationId }, async () => {
+      try {
+        switch (name) {
+          case 'asc_status': {
+            const probe = await requireClient().request({
+              baseUrl: index.baseUrl,
+              method: 'GET',
+              path: '/v1/apps',
+              query: { limit: 1, 'fields[apps]': 'bundleId,name' },
+              audience: 'connect',
             });
-            out.connect = {
-              matched: total,
-              showing: results.length,
-              operations: results.map((o) => ({
-                operationId: o.id,
-                method: o.method,
-                path: o.path,
-                risk: o.risk,
-                tool: o.risk === 'READ' ? 'asc_call' : 'asc_write',
-                summary: o.summary || undefined,
-              })),
-            };
-          }
-
-          if (scope !== 'connect') {
-            const terms = String(args.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
-            const hits = STOREKIT_OPERATIONS.filter((o) => {
-              const haystack = `${o.id} ${o.path} ${o.summary}`.toLowerCase();
-              return (
-                terms.every((t) => haystack.includes(t)) &&
-                (!args.method || o.method === args.method) &&
-                (!args.risk || o.risk === args.risk)
-              );
-            });
-            out.storekit = {
-              matched: hits.length,
-              operations: hits.map((o) => ({
-                operationId: o.id,
-                method: o.method,
-                path: o.path,
-                risk: o.risk,
-                tool: o.risk === 'READ' ? 'asc_call' : 'asc_write',
-                summary: o.summary,
-              })),
-            };
-          }
-          return sized(out, 'asc_search_endpoints');
-        }
-
-        case 'asc_describe_endpoint': {
-          const sk = STOREKIT_BY_ID.get(args.operationId);
-          if (sk) {
+            const apps = (probe.data as any)?.data ?? [];
             return text({
-              ...sk,
-              api: 'App Store Server API (StoreKit 2)',
-              tool: sk.risk === 'READ' ? 'asc_call' : 'asc_write',
-              riskMeaning: RISK_EXPLANATION[sk.risk],
-              host: STOREKIT_HOSTS[config.storekitEnvironment],
-              note: 'Responses are JWS-signed; this server decodes them into *_decoded fields WITHOUT verifying Apple’s signature.',
+              connected: true,
+              keySource: creds?.source,
+              keyId: creds?.keyId,
+              issuerId: creds?.issuerId,
+              bundleId: config.bundleId ?? '(unset — App Store Server API calls will fail)',
+              safetyMode: gate.describeMode,
+              elicitation: server.getClientCapabilities()?.elicitation
+                ? 'supported — writes prompt the user directly'
+                : 'unavailable — writes fall back to a confirmation token',
+              storekitEnvironment: config.storekitEnvironment,
+              rateLimit: requireClient().limiter.state,
+              connectApi: { version: index.apiVersion, operations: index.operationCount },
+              storeKitApi: {
+                operations: STOREKIT_OPERATIONS.length,
+                host: STOREKIT_HOSTS[config.storekitEnvironment],
+                signatureVerification: verifier.available
+                  ? `enabled against Apple Root CA - G3${config.onlineChecks ? ' with OCSP revocation checks' : ' (OCSP checks disabled)'}`
+                  : `DISABLED — ${verifier.unavailable}`,
+              },
+              sampleApp: apps[0]?.attributes ?? null,
             });
           }
-          const described = describeOperation(args.operationId);
-          return sized(
-            {
-              ...described,
-              tool: described.risk === 'READ' ? 'asc_call' : 'asc_write',
-              riskMeaning: RISK_EXPLANATION[described.risk as Risk],
-            },
-            'asc_describe_endpoint'
-          );
-        }
 
-        case 'asc_call':
-        case 'asc_write': {
-          const op = resolve(args.operationId);
-          const writing = isWrite(op.risk);
+          case 'asc_search_endpoints': {
+            const scope = args.api ?? 'both';
+            const out: Record<string, unknown> = {};
 
-          // Keep the split honest in both directions rather than silently
-          // doing the other tool's job.
-          if (name === 'asc_call' && writing) {
-            return text(
+            if (scope !== 'storekit') {
+              const { total, results } = searchOperations({
+                query: args.query,
+                method: args.method,
+                tag: args.tag,
+                risk: args.risk,
+                limit: args.limit,
+              });
+              out.connect = {
+                matched: total,
+                showing: results.length,
+                operations: results.map((o) => ({
+                  operationId: o.id,
+                  method: o.method,
+                  path: o.path,
+                  risk: o.risk,
+                  tool: o.risk === 'READ' ? 'asc_call' : 'asc_write',
+                  summary: o.summary || undefined,
+                })),
+              };
+            }
+
+            if (scope !== 'connect') {
+              const terms = String(args.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+              const hits = STOREKIT_OPERATIONS.filter((o) => {
+                const haystack = `${o.id} ${o.path} ${o.summary}`.toLowerCase();
+                return (
+                  terms.every((t) => haystack.includes(t)) &&
+                  (!args.method || o.method === args.method) &&
+                  (!args.risk || o.risk === args.risk)
+                );
+              });
+              out.storekit = {
+                matched: hits.length,
+                operations: hits.map((o) => ({
+                  operationId: o.id,
+                  method: o.method,
+                  path: o.path,
+                  risk: o.risk,
+                  tool: o.risk === 'READ' ? 'asc_call' : 'asc_write',
+                  summary: o.summary,
+                })),
+              };
+            }
+            return sized(out, 'asc_search_endpoints');
+          }
+
+          case 'asc_describe_endpoint': {
+            const sk = STOREKIT_BY_ID.get(args.operationId);
+            if (sk) {
+              return text({
+                ...sk,
+                api: 'App Store Server API (StoreKit 2)',
+                tool: sk.risk === 'READ' ? 'asc_call' : 'asc_write',
+                riskMeaning: RISK_EXPLANATION[sk.risk],
+                host: STOREKIT_HOSTS[config.storekitEnvironment],
+                note: 'Responses are JWS-signed; this server decodes them into *_decoded fields WITHOUT verifying Apple’s signature.',
+              });
+            }
+            const described = describeOperation(args.operationId);
+            return sized(
               {
-                error: `${op.id} is a ${op.risk} operation, not a read. Use asc_write, which asks the user before changing anything.`,
+                ...described,
+                tool: described.risk === 'READ' ? 'asc_call' : 'asc_write',
+                riskMeaning: RISK_EXPLANATION[described.risk as Risk],
+              },
+              'asc_describe_endpoint'
+            );
+          }
+
+          case 'asc_call':
+          case 'asc_write': {
+            const op = resolve(args.operationId);
+            const writing = isWrite(op.risk);
+
+            // Keep the split honest in both directions rather than silently
+            // doing the other tool's job.
+            if (name === 'asc_call' && writing) {
+              return text(
+                {
+                  error: `${op.id} is a ${op.risk} operation, not a read. Use asc_write, which asks the user before changing anything.`,
+                  risk: op.risk,
+                  riskMeaning: RISK_EXPLANATION[op.risk],
+                },
+                true
+              );
+            }
+            if (name === 'asc_write' && !writing) {
+              return text(
+                { error: `${op.id} only reads data. Use asc_call.`, risk: op.risk },
+                true
+              );
+            }
+
+            const path = renderPath(op.pathTemplate, args.path_params ?? {});
+            const baseUrl =
+              op.api === 'storekit' && args.environment
+                ? STOREKIT_HOSTS[args.environment as 'Production' | 'Sandbox']
+                : op.baseUrl;
+
+            if (writing && args.dry_run) {
+              return text({
+                dryRun: true,
+                wouldSend: { method: op.method, url: `${baseUrl}${path}`, query: args.query, body: args.body },
                 risk: op.risk,
                 riskMeaning: RISK_EXPLANATION[op.risk],
-              },
-              true
-            );
-          }
-          if (name === 'asc_write' && !writing) {
-            return text(
-              { error: `${op.id} only reads data. Use asc_call.`, risk: op.risk },
-              true
-            );
-          }
-
-          const path = renderPath(op.pathTemplate, args.path_params ?? {});
-          const baseUrl =
-            op.api === 'storekit' && args.environment
-              ? STOREKIT_HOSTS[args.environment as 'Production' | 'Sandbox']
-              : op.baseUrl;
-
-          if (writing && args.dry_run) {
-            return text({
-              dryRun: true,
-              wouldSend: { method: op.method, url: `${baseUrl}${path}`, query: args.query, body: args.body },
-              risk: op.risk,
-              riskMeaning: RISK_EXPLANATION[op.risk],
-              note: 'Nothing was sent to Apple. Remove dry_run to execute.',
-            });
-          }
-
-          if (writing) {
-            const approved = await askUser(op, path, args.body);
-            if (approved === false) {
-              return text({ blocked: true, message: 'The user declined this change.' }, true);
+                note: 'Nothing was sent to Apple. Remove dry_run to execute.',
+              });
             }
-            if (approved === undefined) {
-              // No elicitation available: fall back to the token handshake.
-              const blocked = gate.check(
-                { operationId: op.id, method: op.method, path, query: args.query, body: args.body },
-                op.risk,
-                args.confirm
-              );
-              if (blocked) {
-                return text(
-                  blocked.token
-                    ? { confirmationRequired: true, risk: op.risk, token: blocked.token, message: blocked.reason }
-                    : { blocked: true, message: blocked.reason },
-                  !blocked.token
+
+            if (writing) {
+              const approved = await askUser(op, path, args.body);
+              if (approved === false) {
+                return text({ blocked: true, message: 'The user declined this change.' }, true);
+              }
+              if (approved === undefined) {
+                // No elicitation available: fall back to the token handshake.
+                const blocked = gate.check(
+                  { operationId: op.id, method: op.method, path, query: args.query, body: args.body },
+                  op.risk,
+                  args.confirm
                 );
+                if (blocked) {
+                  return text(
+                    blocked.token
+                      ? { confirmationRequired: true, risk: op.risk, token: blocked.token, message: blocked.reason }
+                      : { blocked: true, message: blocked.reason },
+                    !blocked.token
+                  );
+                }
               }
             }
-          }
 
-          const spec = {
-            baseUrl,
-            method: op.method,
-            path,
-            query: args.query,
-            body: args.body,
-            contentType: op.contentType,
-            audience: op.api === 'storekit' ? ('storekit' as const) : ('connect' as const),
-          };
+            const spec = {
+              baseUrl,
+              method: op.method,
+              path,
+              query: args.query,
+              body: args.body,
+              contentType: op.contentType,
+              audience: op.api === 'storekit' ? ('storekit' as const) : ('connect' as const),
+            };
 
-          if (args.paginate && op.method === 'GET') {
-            const pages = Math.min(args.max_pages ?? 10, MAX_PAGES_CAP);
-            const result = await requireClient().requestAll(spec, pages);
-            const body = result.data as Record<string, any>;
-            if (body.pages >= pages) {
-              body.pageCapReached =
-                `Stopped at the ${pages}-page cap; more results may exist. Raise max_pages (cap ${MAX_PAGES_CAP}).`;
+            if (args.paginate && op.method === 'GET') {
+              const pages = Math.min(args.max_pages ?? 10, MAX_PAGES_CAP);
+              const result = await requireClient().requestAll(spec, pages);
+              const body = result.data as Record<string, any>;
+              if (body.pages >= pages) {
+                body.pageCapReached =
+                  `Stopped at the ${pages}-page cap; more results may exist. Raise max_pages (cap ${MAX_PAGES_CAP}).`;
+              }
+              return sized(result.data, name);
             }
+
+            const result = await requireClient().request(spec);
             return sized(result.data, name);
           }
 
-          const result = await requireClient().request(spec);
-          return sized(result.data, name);
-        }
+          default: {
+            const macro = MACRO_BY_NAME.get(name);
+            if (!macro) return text(`Unknown tool: ${name}`, true);
 
-        default: {
-          const macro = MACRO_BY_NAME.get(name);
-          if (!macro) return text(`Unknown tool: ${name}`, true);
+            const ctx: MacroContext = { client: requireClient(), baseUrl: index.baseUrl };
 
-          const ctx: MacroContext = { client: requireClient(), baseUrl: index.baseUrl };
+            // Writes clear the same gate as asc_write. Routing them through one
+            // implementation is what stops a macro quietly becoming a way round
+            // the confirmation.
+            if (isWrite(macro.risk)) {
+              const summary = macro.summarise?.(args) ?? `Run ${macro.name}.`;
+              const pseudo: Resolved = {
+                api: 'connect',
+                id: macro.name,
+                method: 'MACRO',
+                pathTemplate: macro.name,
+                risk: macro.risk,
+                baseUrl: index.baseUrl,
+              };
 
-          // Writes clear the same gate as asc_write. Routing them through one
-          // implementation is what stops a macro quietly becoming a way round
-          // the confirmation.
-          if (isWrite(macro.risk)) {
-            const summary = macro.summarise?.(args) ?? `Run ${macro.name}.`;
-            const pseudo: Resolved = {
-              api: 'connect',
-              id: macro.name,
-              method: 'MACRO',
-              pathTemplate: macro.name,
-              risk: macro.risk,
-              baseUrl: index.baseUrl,
-            };
-
-            const approved = await askUser(pseudo, summary, args);
-            if (approved === false) {
-              return text({ blocked: true, message: 'The user declined this change.' }, true);
-            }
-            if (approved === undefined) {
-              // Fingerprint the arguments WITHOUT `confirm`. The token is injected into every
-              // non-READ macro's schema above, so it arrives inside `args` on the confirming
-              // call — fingerprinting the whole object would hash `{app}` first and
-              // `{app, confirm}` second, and every gated macro would reject its own token with
-              // "Confirmation token does not match this request". asc_write avoids this by
-              // hashing `args.body`, where `confirm` is a sibling rather than a member.
-              const gated = { ...args };
-              delete gated.confirm;
-              const blocked = gate.check(
-                { operationId: macro.name, method: 'MACRO', path: macro.name, query: undefined, body: gated },
-                macro.risk,
-                args.confirm
-              );
-              if (blocked) {
-                return text(
-                  blocked.token
-                    ? {
-                        confirmationRequired: true,
-                        risk: macro.risk,
-                        token: blocked.token,
-                        willDo: summary,
-                        message: blocked.reason,
-                      }
-                    : { blocked: true, message: blocked.reason },
-                  !blocked.token
+              const approved = await askUser(pseudo, summary, args);
+              if (approved === false) {
+                return text({ blocked: true, message: 'The user declined this change.' }, true);
+              }
+              if (approved === undefined) {
+                // Fingerprint the arguments WITHOUT `confirm`. The token is injected into every
+                // non-READ macro's schema above, so it arrives inside `args` on the confirming
+                // call — fingerprinting the whole object would hash `{app}` first and
+                // `{app, confirm}` second, and every gated macro would reject its own token with
+                // "Confirmation token does not match this request". asc_write avoids this by
+                // hashing `args.body`, where `confirm` is a sibling rather than a member.
+                const gated = { ...args };
+                delete gated.confirm;
+                const blocked = gate.check(
+                  { operationId: macro.name, method: 'MACRO', path: macro.name, query: undefined, body: gated },
+                  macro.risk,
+                  args.confirm
                 );
+                if (blocked) {
+                  return text(
+                    blocked.token
+                      ? {
+                          confirmationRequired: true,
+                          risk: macro.risk,
+                          token: blocked.token,
+                          willDo: summary,
+                          message: blocked.reason,
+                        }
+                      : { blocked: true, message: blocked.reason },
+                    !blocked.token
+                  );
+                }
               }
             }
+
+            const outcome = await runMacro(name, ctx, args);
+            if (outcome.kind === 'result') return sized(outcome.value, name);
+
+            // A planned write: the gate already cleared, so send it.
+            const sent = await requireClient().request({
+              baseUrl: index.baseUrl,
+              method: outcome.request.method,
+              path: outcome.request.path,
+              body: outcome.request.body,
+              audience: 'connect',
+            });
+            return sized({ applied: true, effect: outcome.effect, ...(outcome.context as object), result: sent.data }, name);
           }
-
-          const outcome = await runMacro(name, ctx, args);
-          if (outcome.kind === 'result') return sized(outcome.value, name);
-
-          // A planned write: the gate already cleared, so send it.
-          const sent = await requireClient().request({
-            baseUrl: index.baseUrl,
-            method: outcome.request.method,
-            path: outcome.request.path,
-            body: outcome.request.body,
-            audience: 'connect',
-          });
-          return sized({ applied: true, effect: outcome.effect, ...(outcome.context as object), result: sent.data }, name);
         }
+      } catch (error) {
+        if (error instanceof ApiError) {
+          return text(
+            {
+              error: error.message,
+              status: error.status,
+              requestId: error.requestId,
+              ambiguous: error.ambiguous || undefined,
+              detail: error.detail,
+              hint:
+                error.ambiguous
+                  ? 'This write was not retried, because Apple may already have applied it. Check the current state before trying again.'
+                  : error.status === 401
+                    ? 'Authentication failed. Run asc_status. Check that the key ID matches the key material and that the key is still active.'
+                    : error.status === 403
+                      ? 'Authorised, but this API key’s role cannot perform that operation.'
+                      : error.status === 404
+                        ? 'Not found. Confirm the path parameters — an ID of the wrong resource type returns 404 rather than a validation error. Some resources are also not where the URL pattern implies; see the asc://cookbook resource.'
+                        : error.status === 429
+                          ? 'Rate limited. asc_status reports the remaining budget; note that it belongs to the key, so other agents or CI jobs share it.'
+                          : undefined,
+            },
+            true
+          );
+        }
+        // Not an ApiError, so http.ts did not record it: a renderPath failure, a
+        // macro's own throw, an unknown operationId, a credential problem. This
+        // is the class of failure that was previously invisible.
+        recordFailure({
+          kind: 'tool',
+          message: error instanceof Error ? error.message : String(error),
+          bodyKeys: args.body ? describeBodyKeys(args.body) : undefined,
+        });
+        return text({ error: error instanceof Error ? error.message : String(error) }, true);
+      } finally {
+        end();
       }
-    } catch (error) {
-      if (error instanceof ApiError) {
-        return text(
-          {
-            error: error.message,
-            status: error.status,
-            requestId: error.requestId,
-            ambiguous: error.ambiguous || undefined,
-            detail: error.detail,
-            hint:
-              error.ambiguous
-                ? 'This write was not retried, because Apple may already have applied it. Check the current state before trying again.'
-                : error.status === 401
-                  ? 'Authentication failed. Run asc_status. Check that the key ID matches the key material and that the key is still active.'
-                  : error.status === 403
-                    ? 'Authorised, but this API key’s role cannot perform that operation.'
-                    : error.status === 404
-                      ? 'Not found. Confirm the path parameters — an ID of the wrong resource type returns 404 rather than a validation error. Some resources are also not where the URL pattern implies; see the asc://cookbook resource.'
-                      : error.status === 429
-                        ? 'Rate limited. asc_status reports the remaining budget; note that it belongs to the key, so other agents or CI jobs share it.'
-                        : undefined,
-          },
-          true
-        );
-      }
-      return text({ error: error instanceof Error ? error.message : String(error) }, true);
-    } finally {
-      end();
-    }
+    });
   });
 
   return server;

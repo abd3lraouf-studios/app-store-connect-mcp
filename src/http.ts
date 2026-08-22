@@ -9,6 +9,7 @@ import { TokenMinter, type Audience } from './jwt.js';
 import { verifySignedFields, type JwsVerifier } from './jws.js';
 import { RateLimiter } from './ratelimit.js';
 import { shapeResponse } from './shape.js';
+import type { FailureEvent } from './failure-log.js';
 
 /** Only these hosts may ever receive a bearer token. */
 const ALLOWED_HOSTS = new Set([
@@ -141,6 +142,16 @@ function describeError(status: number, data: unknown): string {
   return `HTTP ${status}`;
 }
 
+/** The machine-readable half of describeError, for grouping failures later. */
+function errorCode(data: unknown): string | undefined {
+  if (data && typeof data === 'object') {
+    const d = data as Record<string, any>;
+    if (Array.isArray(d.errors) && d.errors[0]?.code) return String(d.errors[0].code);
+    if (d.errorCode !== undefined) return String(d.errorCode);
+  }
+  return undefined;
+}
+
 const RETRYABLE_FOR_READS = new Set([408, 429, 500, 502, 503, 504]);
 
 export class ApiClient {
@@ -148,10 +159,30 @@ export class ApiClient {
 
   constructor(
     private readonly minter: TokenMinter,
-    private readonly options: { timeoutMs?: number; shape?: boolean; verifier?: JwsVerifier } = {},
+    private readonly options: {
+      timeoutMs?: number;
+      shape?: boolean;
+      verifier?: JwsVerifier;
+      /**
+       * Called once per request that ends in failure, after retries are spent —
+       * never once per attempt. A callback rather than an import so this module
+       * stays free of filesystem side-effects, which every MSW test here relies
+       * on, and so the emitted event is directly assertable.
+       */
+      onFailure?: (event: FailureEvent) => void;
+    } = {},
     limiter?: RateLimiter
   ) {
     this.limiter = limiter ?? new RateLimiter();
+  }
+
+  /** Reporting a failure must never turn into a second failure. */
+  private fail(event: FailureEvent): void {
+    try {
+      this.options.onFailure?.(event);
+    } catch {
+      /* A broken sink is not the caller's problem. */
+    }
   }
 
   async request(spec: RequestSpec): Promise<ApiResult> {
@@ -198,21 +229,35 @@ export class ApiClient {
         // A write that times out may still have been applied. Never resend it:
         // a duplicated POST is worse than a reported failure.
         if (isWrite) {
-          throw new ApiError(
-            0,
-            { cause: String(error) },
-            timedOut
-              ? `Request timed out after ${this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms. ` +
-                  'Apple may or may not have applied this change — check before retrying.'
-              : `Network error: ${String(error)}`,
-            undefined,
-            true
-          );
+          const message = timedOut
+            ? `Request timed out after ${this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms. ` +
+              'Apple may or may not have applied this change — check before retrying.'
+            : `Network error: ${String(error)}`;
+          this.fail({
+            kind: 'network',
+            message,
+            method: spec.method,
+            path: spec.path,
+            status: 0,
+            ambiguous: true,
+            attempts: attempt,
+            detail: { cause: String(error) },
+          });
+          throw new ApiError(0, { cause: String(error) }, message, undefined, true);
         }
         if (attempt <= MAX_RETRIES) {
           await this.backoff(attempt);
           continue;
         }
+        this.fail({
+          kind: 'network',
+          message: `Network error after ${attempt} attempts: ${String(error)}`,
+          method: spec.method,
+          path: spec.path,
+          status: 0,
+          attempts: attempt,
+          detail: { cause: String(error) },
+        });
         throw new ApiError(0, { cause: String(error) }, `Network error after ${attempt} attempts: ${String(error)}`);
       }
 
@@ -246,7 +291,19 @@ export class ApiClient {
           await this.backoff(attempt, res.headers.get('retry-after'));
           continue;
         }
-        throw new ApiError(res.status, data, describeError(res.status, data), requestId);
+        const message = describeError(res.status, data);
+        this.fail({
+          kind: 'http',
+          message,
+          method: spec.method,
+          path: spec.path,
+          status: res.status,
+          code: errorCode(data),
+          requestId,
+          attempts: attempt,
+          detail: data,
+        });
+        throw new ApiError(res.status, data, message, requestId);
       }
 
       if (spec.audience === 'storekit') {

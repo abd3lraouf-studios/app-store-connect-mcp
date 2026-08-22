@@ -2,6 +2,16 @@ node_modules/
 dist/
 *.log
 
+# Recorded API failures. Local development input, not history — and they carry
+# app and resource IDs. Note *.log above does not match *.jsonl.
+.asc-logs/
+
+# Written by `npm run install:skill --link`: machine-specific paths.
+skills/**/.install.json
+# A project-scoped skill install is a symlink to wherever this repo happens
+# to live, which is true of nobody else's checkout.
+.claude/skills/
+
 # Regenerable from Apple's spec on demand (5MB): npm run build:types
 spec/apple-api.d.ts
 
