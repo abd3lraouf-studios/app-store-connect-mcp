@@ -350,7 +350,7 @@ it is good, and it is a different trade to this one.
 Claims are cheap. These are checkable:
 
 ```
-377 tests · 90% line coverage · offline, no credentials, runs on every PR
+378 tests · 90% line coverage · offline, no credentials, runs on every PR
 ```
 
 - **Both directions of signature verification.** A verifier that rejected
@@ -371,7 +371,7 @@ Claims are cheap. These are checkable:
   no in-process harness can catch it.
 
 ```bash
-npm test              # 377 tests, offline
+npm test              # 378 tests, offline
 npm run verify        # 14 read-only checks against the live APIs
 npm run fetch:specs   # re-download both API descriptions from Apple
 ```

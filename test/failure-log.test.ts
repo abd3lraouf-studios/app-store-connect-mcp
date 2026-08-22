@@ -318,13 +318,31 @@ describe('never making things worse', () => {
       for (let i = 0; i < 100; i += 1) recordFailure({ kind: 'http', message: `m${i}`, operationId: `op_${i}` });
 
       __resetFailureLog();
-      process.env.ASC_FAILURE_LOG_DIR = '/proc/nonexistent/definitely-not-writable';
+      // A child of a regular file: ENOTDIR on every platform, and unlike a
+      // path under /proc it cannot be created by a test running as root.
+      const notADir = path.join(tmp(), 'occupied');
+      fs.writeFileSync(notADir, 'x');
+      process.env.ASC_FAILURE_LOG_DIR = path.join(notADir, 'below');
       recordFailure({ kind: 'tool', message: 'x' });
 
       expect(spy).not.toHaveBeenCalled();
     } finally {
       spy.mockRestore();
     }
+  });
+
+  /**
+   * `mkdirSync(dir, { recursive: true })` never returns for a path under /proc,
+   * which answers ENOENT for a missing child and EPERM for creating one. It is
+   * not a throw to catch or a timeout to wait out — the process stops. This
+   * asserts the shipped code no longer asks Node that question.
+   */
+  it.skipIf(process.platform !== 'linux')('gives up rather than hanging on a destination under /proc', () => {
+    process.env.ASC_FAILURE_LOG_DIR = '/proc/nonexistent/definitely-not-writable';
+    const started = Date.now();
+    expect(() => recordFailure({ kind: 'tool', message: 'x' })).not.toThrow();
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(fs.existsSync('/proc/nonexistent')).toBe(false);
   });
 });
 

@@ -247,11 +247,49 @@ function skillDirFromInstall(): string | undefined {
  */
 function probe(dir: string): string | undefined {
   try {
-    fs.mkdirSync(dir, { recursive: true });
+    mkdirp(dir);
     fs.closeSync(fs.openSync(path.join(dir, LOG_NAME), 'a'));
     return dir;
   } catch {
     return undefined;
+  }
+}
+
+/** How far up an absent destination may be created. A log directory is not 64 deep. */
+const MKDIR_MAX_DEPTH = 64;
+
+/**
+ * `mkdirSync(dir, { recursive: true })` with a guaranteed end.
+ *
+ * Node's recursive mkdir does not have one. On Linux, pointing it anywhere
+ * under `/proc` — a filesystem that answers ENOENT for a missing child and
+ * EPERM for creating one — puts it in a loop it never leaves: it hangs, it
+ * cannot be interrupted, and there is nothing to catch. A single
+ * `ASC_FAILURE_LOG_DIR` typo would have hung the server on the first failure
+ * it tried to record, which is precisely the moment it must not.
+ *
+ * Creating the chain here instead means every mkdir is non-recursive, so an
+ * EPERM is an EPERM and probe() simply moves on.
+ */
+function mkdirp(dir: string): void {
+  const target = path.resolve(dir);
+  const missing: string[] = [];
+  let cur = target;
+  while (!fs.existsSync(cur)) {
+    if (missing.length >= MKDIR_MAX_DEPTH) throw new Error(`${target} is too deep to create.`);
+    missing.push(cur);
+    const parent = path.dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  for (const d of missing.reverse()) {
+    try {
+      fs.mkdirSync(d);
+    } catch (error) {
+      // Two writers can race to create the same directory; losing that race is
+      // the outcome we wanted. Anything else is a real refusal.
+      if ((error as NodeJS.ErrnoException)?.code !== 'EEXIST') throw error;
+    }
   }
 }
 
