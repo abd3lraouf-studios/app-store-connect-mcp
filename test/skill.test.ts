@@ -14,11 +14,18 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SKILL_DIR = path.join(ROOT, 'skills', 'app-store-connect');
-const SKILL = fs.readFileSync(path.join(SKILL_DIR, 'SKILL.md'), 'utf8');
+/**
+ * Read with line endings normalised. A Windows checkout converts these files to
+ * CRLF, and every `\n` in the parsing below would then stop matching — which
+ * failed only on the Windows leg of CI.
+ */
+const read = (p: string): string => fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+
+const SKILL = read(path.join(SKILL_DIR, 'SKILL.md'));
 const SCRIPT = path.join(SKILL_DIR, 'scripts', 'asc-log-failure.mjs');
 
 const references = fs.readdirSync(path.join(SKILL_DIR, 'references')).map((f) => f);
-const allText = [SKILL, ...references.map((f) => fs.readFileSync(path.join(SKILL_DIR, 'references', f), 'utf8'))].join(
+const allText = [SKILL, ...references.map((f) => read(path.join(SKILL_DIR, 'references', f)))].join(
   '\n'
 );
 

@@ -11,7 +11,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   recordFailure,
@@ -23,6 +23,14 @@ import {
 } from '../src/failure-log.js';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+/**
+ * A dynamic import() specifier is a URL, not a path. On Windows an absolute
+ * path starts with a drive letter, which Node reads as a scheme — so the
+ * child process died with ERR_UNSUPPORTED_ESM_URL_SCHEME there and nowhere
+ * else.
+ */
+const importSpecifier = (p: string): string => JSON.stringify(pathToFileURL(p).href);
 const PKG = '@abd3lraouf/app-store-connect-mcp';
 
 const saved = { ...process.env };
@@ -354,7 +362,7 @@ describe('across processes', () => {
     const { base, entry } = fakeInstall();
     const home = tmp();
     runNode(
-      `const m = await import(${JSON.stringify(entry)}); m.recordFailure({kind:'tool',message:'x'});`,
+      `const m = await import(${importSpecifier(entry)}); m.recordFailure({kind:'tool',message:'x'});`,
       { CLAUDE_CONFIG_DIR: home, ASC_SKILL_DIR: '' },
       base
     );
@@ -365,7 +373,7 @@ describe('across processes', () => {
     const { base, entry } = fakeInstall();
     const skill = tmp();
     runNode(
-      `const m = await import(${JSON.stringify(entry)}); m.recordFailure({kind:'tool',message:'from the skill'});`,
+      `const m = await import(${importSpecifier(entry)}); m.recordFailure({kind:'tool',message:'from the skill'});`,
       { ASC_SKILL_DIR: skill },
       base
     );
@@ -384,7 +392,7 @@ describe('across processes', () => {
     fs.chmodSync(path.join(skill, '.logs'), 0o555);
 
     runNode(
-      `const m = await import(${JSON.stringify(entry)}); m.recordFailure({kind:'tool',message:'fell through'});`,
+      `const m = await import(${importSpecifier(entry)}); m.recordFailure({kind:'tool',message:'fell through'});`,
       { ASC_SKILL_DIR: skill, CLAUDE_CONFIG_DIR: home },
       base
     );
@@ -397,7 +405,7 @@ describe('across processes', () => {
     const dir = tmp();
     const pad = 'y'.repeat(1500);
     const script = (tag: string) =>
-      `const m = await import(${JSON.stringify(ENTRY)});` +
+      `const m = await import(${importSpecifier(ENTRY)});` +
       `for (let i = 0; i < 200; i++) m.recordFailure({kind:'tool',message:'${tag}-'+i+'-${pad}',operationId:'${tag}_'+i});`;
 
     const kids = ['a', 'b', 'c', 'd'].map((tag) =>
