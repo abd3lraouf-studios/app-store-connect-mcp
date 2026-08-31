@@ -1,5 +1,5 @@
 {
-  "fetchedAt": "2026-08-18T21:04:07.285Z",
+  "fetchedAt": "2026-08-31T12:52:20.304Z",
   "appStoreConnect": {
     "url": "https://developer.apple.com/sample-code/app-store-connect/app-store-connect-openapi-specification.zip",
     "apiVersion": "4.4.1"
@@ -10,7 +10,7 @@
   },
   "appleRootCertificate": {
     "url": "https://www.apple.com/certificateauthority/AppleRootCA-G3.cer",
-    "subject": "subject=CN=Apple Root CA - G3, OU=Apple Certification Authority, O=Apple Inc., C=US",
+    "subject": "subject=CN = Apple Root CA - G3, OU = Apple Certification Authority, O = Apple Inc., C = US",
     "notAfter": "notAfter=Apr 30 18:19:06 2039 GMT"
   }
 }
