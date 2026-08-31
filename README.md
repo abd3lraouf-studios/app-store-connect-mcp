@@ -97,8 +97,10 @@ your home directory. Its 15-second timeout doesn't help either: it bounds only
 
 **It won't let a write pretend to be a read.** Reads and writes are separate
 tools. `asc_write` carries `_meta["anthropic/requiresUserInteraction"]`, which
-Claude Code honours **even under `bypassPermissions`**. There is no flag that
-turns that off, because a safety you can disable is a safety you will disable.
+Claude Code honours **even under `bypassPermissions`**. The model cannot talk
+its way past it; only the operator can, by starting the server with
+`--no-confirm` — which drops the flag, the prompt and the token together, for
+runs where nobody is present to answer.
 
 **It won't decide your pricing intent for you.** `preserve_current_price` is a
 required parameter with no default. Apple defaults it to `false` — meaning your
@@ -271,7 +273,9 @@ tier (counts are App Store Connect; StoreKit 2 adds 14 reads and 16 writes):
 flowchart TD
     A["asc_write called"] --> B{"--read-only?"}
     B -->|yes| Z["blocked"]
-    B -->|no| C{"risk tier"}
+    B -->|no| N{"--no-confirm?"}
+    N -->|yes| S["send it"]
+    N -->|no| C{"risk tier"}
     C -->|"WRITE"| S["send it"]
     C -->|"REVENUE · DESTRUCTIVE<br/>INFRASTRUCTURE · ACCESS · RELEASE"| D{"client supports<br/>elicitation?"}
     D -->|yes| E["ask the person<br/>method · path · body · tier"]
@@ -297,8 +301,13 @@ sailing through.
 ```
 --read-only    block every write       --confirm     confirm every write
 --no-confirm   never confirm           (default)     confirm the five tiers above
---dry-run      report the exact request without sending it
+dry_run: true  report the exact request without sending it (a parameter of asc_write)
 ```
+
+`--no-confirm` is the unattended mode, and it is total: no elicitation prompt,
+no confirmation token, and the write tools stop declaring
+`requiresUserInteraction`, so Claude Code does not stop for them either. Anything
+short of that would hand an unattended run a confirmation it cannot answer.
 
 ---
 
@@ -482,8 +491,9 @@ Stated plainly, because you will find them anyway:
   cautious, but heuristics. Read `asc_describe_endpoint` before a write.
 - **Keychain storage is macOS-only.** Elsewhere, use a file path with
   restrictive permissions.
-- **`--no-confirm` disables the gate.** It exists for CI and is a poor default
-  anywhere a person is present.
+- **`--no-confirm` disables every gate** — token, elicitation and the
+  `requiresUserInteraction` flag. It exists for CI and unattended agents, and is
+  a poor default anywhere a person is present.
 - **`--no-online-checks` skips OCSP**, which means accepting a revoked
   certificate.
 - **The failure log's lock-free append relies on `O_APPEND` atomicity**, which

@@ -140,3 +140,75 @@ describe('without elicitation', () => {
     await client.close();
   });
 });
+
+// --no-confirm has to switch off every layer, not just the token. An
+// elicitation-capable client would otherwise still be asked, and Claude Code
+// would still stop on the requiresUserInteraction flag — two confirmations
+// for a run that asked for none.
+describe('with --no-confirm', () => {
+  const unattended: Config = { ...config, safety: 'no-confirm' };
+
+  async function connectUnattended(elicitation: boolean) {
+    const server = createServer(unattended);
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const client = new Client(
+      { name: 'test', version: '1.0.0' },
+      { capabilities: elicitation ? { elicitation: {} } : {} }
+    );
+    let asked = 0;
+    if (elicitation) {
+      client.setRequestHandler(ElicitRequestSchema, () => {
+        asked += 1;
+        return { action: 'decline' };
+      });
+    }
+    await Promise.all([server.connect(st), client.connect(ct)]);
+    return { client, asked: () => asked, close: () => client.close() };
+  }
+
+  it('sends a DESTRUCTIVE write without asking an elicitation-capable client', async () => {
+    let deleted = false;
+    mock.use(http.delete(`${BASE}/v1/analyticsReportRequests/7`, () => {
+      deleted = true;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    const { client, asked, close } = await connectUnattended(true);
+    const res = await client.callTool({ name: 'asc_write', arguments: DELETE_ARGS });
+    expect(res.isError).toBeFalsy();
+    expect(deleted).toBe(true);
+    expect(asked()).toBe(0);
+    await close();
+  });
+
+  it('issues no token when the client has no elicitation either', async () => {
+    let deleted = false;
+    mock.use(http.delete(`${BASE}/v1/analyticsReportRequests/7`, () => {
+      deleted = true;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    const { client, close } = await connectUnattended(false);
+    const res = payload(await client.callTool({ name: 'asc_write', arguments: DELETE_ARGS }));
+    expect(res.confirmationRequired).toBeUndefined();
+    expect(deleted).toBe(true);
+    await close();
+  });
+
+  it('drops requiresUserInteraction from every write tool', async () => {
+    const { client, close } = await connectUnattended(true);
+    const { tools } = await client.listTools();
+    const flagged = tools.filter((t) => (t as any)._meta?.['anthropic/requiresUserInteraction']);
+    expect(flagged.map((t) => t.name)).toEqual([]);
+    // The read/write split itself is untouched.
+    expect(tools.find((t) => t.name === 'asc_write')?.annotations?.readOnlyHint).toBe(false);
+    await close();
+  });
+
+  it('says so in asc_status', async () => {
+    mock.use(http.get(`${BASE}/v1/apps`, () => HttpResponse.json({ data: [] })));
+    const { client, close } = await connectUnattended(true);
+    const out = payload(await client.callTool({ name: 'asc_status', arguments: {} }));
+    expect(out.elicitation).toMatch(/bypassed/);
+    expect(out.safetyMode).toMatch(/no-confirm/);
+    await close();
+  });
+});

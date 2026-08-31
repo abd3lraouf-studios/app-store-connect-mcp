@@ -69,7 +69,7 @@ export class SafetyGate {
       case 'confirm':
         return 'confirm (every write requires confirmation)';
       case 'no-confirm':
-        return 'no-confirm (writes execute immediately)';
+        return 'no-confirm (writes execute immediately — no prompt, no token, no requiresUserInteraction flag)';
       default:
         return 'default (REVENUE, DESTRUCTIVE, INFRASTRUCTURE, ACCESS and RELEASE writes require confirmation)';
     }

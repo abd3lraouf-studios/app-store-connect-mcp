@@ -24,7 +24,8 @@ Credentials (one of, in order of preference):
 Safety:
   --read-only     Block every mutating operation.
   --confirm       Require confirmation for every write.
-  --no-confirm    Execute writes immediately.
+  --no-confirm    Execute writes immediately: no prompt, no token, and the write
+                  tools drop the requiresUserInteraction flag. For unattended runs.
   (default)       Confirm REVENUE, DESTRUCTIVE, INFRASTRUCTURE, ACCESS, RELEASE.
 
 Transport:

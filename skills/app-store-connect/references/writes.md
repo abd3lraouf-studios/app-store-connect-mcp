@@ -29,6 +29,10 @@ not paraphrase the call between the two steps; the token is bound to it.
 
 If the server prompted the user directly, no token is needed.
 
+If `asc_status` reports `safetyMode: no-confirm`, there is no confirmation of
+any kind: writes execute on the first call. Say what you are about to change
+before you change it, because nothing else will.
+
 ## When a write fails
 
 - **`ambiguous: true` means do not retry.** Apple may already have applied it. A

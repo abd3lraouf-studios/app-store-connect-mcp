@@ -18,8 +18,10 @@
  * standard `destructiveHint` annotation but honours
  * `_meta["anthropic/requiresUserInteraction"]`, and that flag is per-tool. A
  * single dispatcher could not vary it per operation, so `asc_write` carries it
- * and becomes un-bypassable — a stronger guarantee than the in-process gate,
- * which `--no-confirm` can switch off.
+ * and cannot be talked past by the model — a stronger guarantee than the
+ * in-process gate. `--no-confirm` removes all of it: the flag, the elicitation
+ * prompt and the token, because an operator who asked for unattended writes
+ * must not get two other kinds of confirmation instead.
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
@@ -122,6 +124,18 @@ export function createServer(config: Config): Server {
     return client;
   }
   const gate = new SafetyGate(config.safety);
+  /**
+   * `--no-confirm` means every layer, not just the token. Elicitation would
+   * still put a form in front of the person, and `requiresUserInteraction`
+   * would still make Claude Code stop for approval on every write — so a run
+   * that asked for no confirmation would still get two kinds of it. When the
+   * operator has said writes execute immediately, they do.
+   */
+  const autonomous = config.safety === 'no-confirm';
+  /** `_meta` for a mutating tool: the interaction flag only when writes are gated. */
+  const WRITE_META = autonomous
+    ? RESULT_SIZE_META
+    : { ...RESULT_SIZE_META, 'anthropic/requiresUserInteraction': true };
   const index = loadIndex();
   const store = new ResponseStore();
   const resources = staticResources();
@@ -248,8 +262,11 @@ export function createServer(config: Config): Server {
         name: 'asc_write',
         description:
           'Change something in App Store Connect: create, update or delete. ' +
-          'Consequential tiers (REVENUE, DESTRUCTIVE, INFRASTRUCTURE, ACCESS, RELEASE) ask the user to confirm ' +
-          'before anything is sent. Use dry_run first when you are unsure what a call will do — it validates and ' +
+          (autonomous
+            ? 'Writes execute immediately (--no-confirm). '
+            : 'Consequential tiers (REVENUE, DESTRUCTIVE, INFRASTRUCTURE, ACCESS, RELEASE) ask the user to confirm ' +
+              'before anything is sent. ') +
+          'Use dry_run first when you are unsure what a call will do — it validates and ' +
           'reports the exact request without sending it. Read asc_describe_endpoint first to get the body schema right.',
         inputSchema: {
           type: 'object',
@@ -269,9 +286,10 @@ export function createServer(config: Config): Server {
           required: ['operationId'],
         },
         // Claude Code honours this even under bypassPermissions, which the
-        // standard destructiveHint annotation does not achieve.
+        // standard destructiveHint annotation does not achieve. It is dropped
+        // only under --no-confirm, where the operator has asked for exactly that.
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
-        _meta: { ...RESULT_SIZE_META, 'anthropic/requiresUserInteraction': true },
+        _meta: WRITE_META,
       },
       // Composite tools. Each collapses a chain the raw API cannot express in
       // one call; anything that merely saved a request was left out.
@@ -295,10 +313,7 @@ export function createServer(config: Config): Server {
           m.risk === 'READ'
             ? { readOnlyHint: true, openWorldHint: true }
             : { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
-        _meta:
-          m.risk === 'READ'
-            ? RESULT_SIZE_META
-            : { ...RESULT_SIZE_META, 'anthropic/requiresUserInteraction': true },
+        _meta: m.risk === 'READ' ? RESULT_SIZE_META : WRITE_META,
       })),
     ],
   }));
@@ -397,6 +412,9 @@ export function createServer(config: Config): Server {
    * so declining always stops the call.
    */
   async function askUser(op: Resolved, path: string, body: unknown): Promise<boolean | undefined> {
+    // Nothing to ask under --no-confirm: the operator answered in advance.
+    // Returning `true` rather than `undefined` also skips the token fallback.
+    if (autonomous) return true;
     if (!server.getClientCapabilities()?.elicitation) return undefined;
     try {
       const result = await server.elicitInput({
@@ -451,9 +469,11 @@ export function createServer(config: Config): Server {
               issuerId: creds?.issuerId,
               bundleId: config.bundleId ?? '(unset — App Store Server API calls will fail)',
               safetyMode: gate.describeMode,
-              elicitation: server.getClientCapabilities()?.elicitation
-                ? 'supported — writes prompt the user directly'
-                : 'unavailable — writes fall back to a confirmation token',
+              elicitation: autonomous
+                ? 'bypassed — --no-confirm executes every write immediately'
+                : server.getClientCapabilities()?.elicitation
+                  ? 'supported — writes prompt the user directly'
+                  : 'unavailable — writes fall back to a confirmation token',
               storekitEnvironment: config.storekitEnvironment,
               rateLimit: requireClient().limiter.state,
               connectApi: { version: index.apiVersion, operations: index.operationCount },
